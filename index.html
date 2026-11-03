@@ -437,15 +437,22 @@
 
           <div class="grid grid-cols-2 gap-2">
             <div>
-              <label class="text-[10px] font-mono text-zinc-400">Default Key</label>
+              <div class="flex items-center justify-between mb-0.5">
+                <label class="text-[10px] font-mono text-zinc-400">Default Key</label>
+                <!-- TRANSPOSE SEMITONE BUTTONS -->
+                <div class="flex items-center gap-1 font-mono text-[10px]">
+                  <span class="text-zinc-500 mr-0.5">Pitch:</span>
+                  <button id="btn-transpose-down" type="button" class="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 active:bg-amber-400 active:text-black text-amber-300 font-bold border border-zinc-700 transition" title="Transpose down 1 semitone (-1)">-1</button>
+                  <button id="btn-transpose-up" type="button" class="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 active:bg-amber-400 active:text-black text-amber-300 font-bold border border-zinc-700 transition" title="Transpose up 1 semitone (+1)">+1</button>
+                </div>
+              </div>
               <input type="text" id="edit-song-key" value="D" class="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-white font-mono uppercase">
             </div>
             <div>
-              <label class="text-[10px] font-mono text-zinc-400">Total Measures</label>
+              <label class="text-[10px] font-mono text-zinc-400 mb-0.5 block">Total Measures</label>
               <input type="number" id="edit-total-measures" min="2" max="2000" value="24" class="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-white font-mono">
             </div>
           </div>
-        </div>
 
         <!-- Measures Chord & Lead List Header -->
         <div class="flex items-center justify-between flex-shrink-0">
@@ -3937,6 +3944,15 @@ Creator:BeatSync
       } else if (e.code === 'ArrowRight') {
         seekToTime(State.currentTime + 1);
       }
+      
+    });
+    
+    document.getElementById('btn-transpose-down').addEventListener('click', () => {
+      transposeEntireProject(-1);
+    });
+
+    document.getElementById('btn-transpose-up').addEventListener('click', () => {
+      transposeEntireProject(1);
     });
 
     /* =========================================================================
@@ -3956,6 +3972,128 @@ Creator:BeatSync
       updateHeaderDisplay(initialMetrics);
       drawVisualizer();
     };
+
+    /* =========================================================================
+       SEMITONE TRANSPOSITION ENGINE (CHORDS, SLASH BASS & LEADS)
+       ========================================================================= */
+    const CHROMATIC_SCALE_SHARPS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    const CHROMATIC_SCALE_FLATS  = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
+
+    const NOTE_TO_SEMITONE = {
+      'B#': 0, 'C': 0, 'C#': 1, 'DB': 1, 'D': 2, 'D#': 3, 'EB': 3,
+      'E': 4, 'FB': 4, 'E#': 5, 'F': 5, 'F#': 6, 'GB': 6, 'G': 7,
+      'G#': 8, 'AB': 8, 'A': 9, 'A#': 10, 'BB': 10, 'B': 11, 'CB': 11
+    };
+
+    function transposeNote(noteName, semitones, preferFlats = false) {
+      if (!noteName) return noteName;
+      const clean = noteName.toUpperCase().trim();
+      if (!(clean in NOTE_TO_SEMITONE)) return noteName;
+
+      const currentVal = NOTE_TO_SEMITONE[clean];
+      const targetVal = (currentVal + semitones + 120) % 12;
+      const targetScale = preferFlats ? CHROMATIC_SCALE_FLATS : CHROMATIC_SCALE_SHARPS;
+      return targetScale[targetVal];
+    }
+
+    function transposeChordToken(token, semitones, preferFlats = false) {
+      if (!token || token === '.' || token === '-' || token === '_') return token;
+
+      // Check slash chords like E/G# or D/F#
+      if (token.includes('/')) {
+        const parts = token.split('/');
+        const transposedRoot = transposeChordToken(parts[0], semitones, preferFlats);
+        const transposedBass = transposeChordToken(parts[1], semitones, preferFlats);
+        return `${transposedRoot}/${transposedBass}`;
+      }
+
+      // Match chord root note (e.g., F#, Bb, C) + descriptor (e.g. m7, sus4, maj7, add9)
+      const match = token.match(/^([A-Ga-g][#b]?)(.*)$/);
+      if (!match) return token;
+
+      const root = match[1];
+      const extension = match[2] || '';
+      const transposedRoot = transposeNote(root, semitones, preferFlats);
+
+      return transposedRoot + extension;
+    }
+
+    function transposeLeadToken(token, semitones, preferFlats = false) {
+      if (!token || token === '.' || token === '-' || token === '_') return token;
+
+      // Lead note with octave number (e.g. F#5, E5, Bb4, C6)
+      const match = token.match(/^([A-Ga-g][#b]?)(\d+)?$/);
+      if (!match) return transposeChordToken(token, semitones, preferFlats);
+
+      const note = match[1];
+      let octave = match[2] ? parseInt(match[2], 10) : 5;
+      const currentVal = NOTE_TO_SEMITONE[note.toUpperCase()];
+      if (currentVal === undefined) return token;
+
+      const rawTarget = currentVal + semitones;
+      if (rawTarget >= 12) octave += Math.floor(rawTarget / 12);
+      else if (rawTarget < 0) octave += Math.floor(rawTarget / 12);
+
+      const transposedNote = transposeNote(note, semitones, preferFlats);
+      return match[2] ? `${transposedNote}${octave}` : transposedNote;
+    }
+
+    function transposeSpacedLine(line, semitones, isLead = false, preferFlats = false) {
+      if (!line) return '';
+      // Preserve spaces so beat alignment remains untouched
+      return line.replace(/(\S+)/g, (token) => {
+        if (token === '.' || token === '-' || token === '_') return token;
+        return isLead 
+          ? transposeLeadToken(token, semitones, preferFlats)
+          : transposeChordToken(token, semitones, preferFlats);
+      });
+    }
+
+    function transposeEntireProject(semitones) {
+      if (semitones === 0) return;
+
+      // Prefer flats if original key is flat-leaning (F, Bb, Eb, Ab, Db, Gm, Dm)
+      const keyUpper = (State.song.key || '').toUpperCase();
+      const preferFlats = keyUpper.includes('B') || keyUpper.includes('F') || keyUpper === 'EB' || keyUpper === 'AB';
+
+      // 1. Transpose Default Song Key
+      State.song.key = transposeNote(State.song.key, semitones, preferFlats);
+      const keyIn = document.getElementById('edit-song-key');
+      if (keyIn) keyIn.value = State.song.key;
+
+      // 2. Transpose All Sections & Medley Keys
+      if (State.sections && State.sections.length) {
+        State.sections.forEach(sec => {
+          if (sec.songKey) {
+            sec.songKey = transposeNote(sec.songKey, semitones, preferFlats);
+          }
+        });
+      }
+
+      // 3. Transpose Every Measure's Chords and Leads
+      if (State.measures && State.measures.length) {
+        State.measures.forEach(m => {
+          if (m.chordLine) {
+            m.chordLine = transposeSpacedLine(m.chordLine, semitones, false, preferFlats);
+          }
+          if (m.leadLine) {
+            m.leadLine = transposeSpacedLine(m.leadLine, semitones, true, preferFlats);
+          }
+        });
+      }
+
+      // 4. Update Engine and UI
+      updateEngine();
+      const metrics = getTimingMetricsAt(State.currentTime);
+      updateHeaderDisplay(metrics);
+
+      // Toast feedback
+      const copyStatus = document.getElementById('copy-status-msg');
+      if (copyStatus) {
+        copyStatus.textContent = `transposed ${semitones > 0 ? '+' + semitones : semitones} st → Key ${State.song.key}`;
+        copyStatus.className = "text-amber-400 font-mono text-[10px] font-bold";
+      }
+    }
   </script>
 </body>
 </html>
