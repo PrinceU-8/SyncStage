@@ -100,8 +100,8 @@
 
       <!-- Video / Presentation Stage Mode -->
       <button id="btn-video-mode" class="bg-amber-400 hover:bg-amber-300 text-black font-bold text-xs px-3.5 py-1.5 rounded-md flex items-center gap-1.5 shadow transition">
-        <i class="ph-bold ph-presentation text-sm"></i>
-        <span>Stage View</span>
+        <i class="ph-bold ph-arrows-out-simple text-sm"></i>
+        <span>Full Stage View</span>
       </button>
 
       <!-- Save Project -->
@@ -126,7 +126,7 @@
   </header>
 
   <!-- MAIN APPLICATION CONTAINER -->
-  <div class="flex-1 flex flex-col xl:flex-row overflow-hidden min-h-0">
+  <div class="flex-1 flex flex-col xl:flex-row overflow-hidden min-h-0 relative">
 
     <!-- LEFT: VISUALIZER STAGE & CONTROLS -->
     <main id="main-stage-col" class="flex-1 flex flex-col p-3 md:p-5 bg-zinc-950 overflow-y-auto min-h-0 transition-all duration-200">
@@ -136,12 +136,16 @@
         
         <!-- EXIT & FLOATING CONTROLS (Stage Mode) -->
         <div id="video-mode-controls" class="hidden absolute top-4 right-5 z-50 flex items-center gap-2">
+          <button id="btn-stage-editor" class="bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 text-xs px-3 py-1.5 rounded-full backdrop-blur transition flex items-center gap-1.5 shadow-lg">
+            <i class="ph-bold ph-sliders text-amber-400"></i>
+            <span id="stage-editor-text">Edit Drawer</span>
+          </button>
           <button id="btn-stage-play" class="bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-700 text-amber-400 text-xs px-3 py-1.5 rounded-full backdrop-blur transition flex items-center gap-1.5 shadow-lg">
             <i id="stage-play-icon" class="ph-fill ph-play text-sm"></i>
             <span id="stage-play-text">Play</span>
           </button>
           <button id="btn-exit-video" class="bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 text-xs px-3 py-1.5 rounded-full backdrop-blur transition flex items-center gap-1.5 shadow-lg">
-            <i class="ph ph-x-circle text-amber-400"></i> Exit [Esc]
+            <i class="ph ph-arrows-in-simple text-amber-400"></i> Exit Fullscreen [Esc]
           </button>
         </div>
 
@@ -266,7 +270,7 @@
     </main>
 
     <!-- RIGHT: TIMING POINTS, SECTIONS & CHORDS EDITOR -->
-    <aside id="main-sidebar" class="w-full xl:w-[480px] 2xl:w-[520px] h-full max-h-screen border-t xl:border-t-0 xl:border-l border-zinc-800 bg-zinc-900/80 p-3 md:p-4 flex flex-col gap-3 transition-all duration-200 min-h-0 flex-shrink-0">
+    <aside id="main-sidebar" class="w-full xl:w-[480px] 2xl:w-[520px] h-full max-h-screen border-t xl:border-t-0 xl:border-l border-zinc-800 bg-zinc-900/80 p-3 md:p-4 flex flex-col gap-3 transition-all duration-200 min-h-0 flex-shrink-0 z-40">
       
       <!-- TAB NAVIGATION -->
       <div class="flex border-b border-zinc-800 text-xs font-semibold pb-1 flex-shrink-0">
@@ -2927,31 +2931,88 @@
     function enterStageMode() {
       State.isVideoMode = true;
       document.getElementById('main-header').classList.add('hidden');
-      document.getElementById('main-sidebar').classList.add('hidden');
       document.getElementById('transport-controls-card').classList.add('hidden');
       document.getElementById('video-mode-controls').classList.remove('hidden');
-      document.getElementById('main-stage-col').classList.add('p-0', 'justify-center', 'items-center', 'h-screen');
-      document.getElementById('visualizer-wrapper').classList.add('w-full', 'h-full', 'rounded-none', 'border-0');
-      resizeCanvas();
+
+      // Make sidebar a floating slide-over drawer in stage mode
+      const sidebar = document.getElementById('main-sidebar');
+      sidebar.classList.add('fixed', 'top-0', 'right-0', 'bottom-0', 'w-[420px]', 'max-w-[90vw]', 'z-50', 'shadow-2xl', 'hidden', 'bg-zinc-950/95', 'backdrop-blur-md');
+
+      const stageCol = document.getElementById('main-stage-col');
+      stageCol.className = 'fixed inset-0 w-screen h-screen z-40 bg-black flex flex-col p-2 md:p-4 overflow-hidden';
+
+      const visWrapper = document.getElementById('visualizer-wrapper');
+      visWrapper.className = 'relative w-full h-full flex flex-col justify-between p-4 md:p-6 bg-black border-0 rounded-none screen-canvas-container select-none max-w-none';
+
+      // Request native full screen if supported
+      const docEl = document.documentElement;
+      if (!document.fullscreenElement && docEl.requestFullscreen) {
+        docEl.requestFullscreen().catch(() => {});
+      }
+
+      setTimeout(resizeCanvas, 50);
     }
 
     function exitStageMode() {
       State.isVideoMode = false;
       document.getElementById('main-header').classList.remove('hidden');
-      document.getElementById('main-sidebar').classList.remove('hidden');
       document.getElementById('transport-controls-card').classList.remove('hidden');
       document.getElementById('video-mode-controls').classList.add('hidden');
-      document.getElementById('main-stage-col').classList.remove('p-0', 'justify-center', 'items-center', 'h-screen');
-      document.getElementById('visualizer-wrapper').classList.remove('w-full', 'h-full', 'rounded-none', 'border-0');
-      resizeCanvas();
+
+      const sidebar = document.getElementById('main-sidebar');
+      sidebar.classList.remove('fixed', 'top-0', 'right-0', 'bottom-0', 'w-[420px]', 'max-w-[90vw]', 'z-50', 'shadow-2xl', 'hidden', 'bg-zinc-950/95', 'backdrop-blur-md');
+
+      const stageCol = document.getElementById('main-stage-col');
+      stageCol.className = 'flex-1 flex flex-col p-3 md:p-5 bg-zinc-950 overflow-y-auto min-h-0 transition-all duration-200';
+
+      const visWrapper = document.getElementById('visualizer-wrapper');
+      visWrapper.className = 'relative w-full aspect-[16/9] max-w-5xl mx-auto rounded-xl overflow-hidden screen-canvas-container border border-zinc-800 flex flex-col justify-between p-5 select-none transition-all duration-200';
+
+      if (document.fullscreenElement && document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      }
+
+      // Allow DOM reflow then trigger resize and immediate redraw
+      requestAnimationFrame(() => {
+        resizeCanvas();
+        drawVisualizer();
+      });
+      setTimeout(() => {
+        resizeCanvas();
+        drawVisualizer();
+      }, 100);
+    }
+
+    function toggleStageDrawer() {
+      const sidebar = document.getElementById('main-sidebar');
+      sidebar.classList.toggle('hidden');
     }
 
     document.getElementById('btn-video-mode').addEventListener('click', enterStageMode);
     document.getElementById('btn-exit-video').addEventListener('click', exitStageMode);
+    document.getElementById('btn-stage-editor').addEventListener('click', toggleStageDrawer);
     document.getElementById('btn-stage-play').addEventListener('click', () => {
       if (State.isPlaying) pausePlayback();
       else startPlayback();
     });
+
+    document.addEventListener('fullscreenchange', () => {
+      if (!document.fullscreenElement && State.isVideoMode) {
+        exitStageMode();
+      }
+    });
+
+    // Dedicated ResizeObserver to avoid blank visualizer glitches
+    const frameContainer = document.getElementById('sweeper-frame-container');
+    if (frameContainer && window.ResizeObserver) {
+      const ro = new ResizeObserver(() => {
+        resizeCanvas();
+        if (!State.isPlaying) {
+          drawVisualizer();
+        }
+      });
+      ro.observe(frameContainer);
+    }
 
     // Project persistence bindings
     document.getElementById('btn-export-project').addEventListener('click', exportProjectJSON);
@@ -2966,6 +3027,10 @@
         e.preventDefault();
         if (State.isPlaying) pausePlayback();
         else startPlayback();
+      } else if (e.code === 'KeyF') {
+        e.preventDefault();
+        if (State.isVideoMode) exitStageMode();
+        else enterStageMode();
       } else if (e.code === 'Escape' && State.isVideoMode) {
         exitStageMode();
       } else if (e.code === 'ArrowLeft') {
