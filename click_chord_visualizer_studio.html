@@ -1,0 +1,3961 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BeatSync Pro - osu! Timing & Chord Visualizer</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Phosphor Icons for music/control UI -->
+  <script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
+    
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #09090b;
+      color: #f4f4f5;
+    }
+    
+    .font-mono-header {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #18181b;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #3f3f46;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #52525b;
+    }
+
+    /* Video visualizer high-contrast display */
+    .screen-canvas-container {
+      background-color: #000000;
+      position: relative;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), 0 0 1px 1px rgba(255, 255, 255, 0.05);
+    }
+
+    /* Glow pulse for hits */
+    @keyframes cuePulse {
+      0% { transform: scale(1); filter: brightness(1.6); }
+      100% { transform: scale(1); filter: brightness(1); }
+    }
+    .pulse-hit {
+      animation: cuePulse 0.18s ease-out;
+    }
+
+    /* Monospace input for accurate alignment with spaces */
+    .font-music-input {
+      font-family: 'JetBrains Mono', monospace;
+      letter-spacing: 0.05em;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col bg-zinc-950 text-zinc-100">
+
+  <!-- TOP APP BAR -->
+  <header id="main-header" class="border-b border-zinc-800 bg-zinc-900/90 backdrop-blur sticky top-0 z-30 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 transition-all duration-200">
+    <div class="flex items-center space-x-3">
+      <div class="w-8 h-8 rounded-lg bg-amber-400 text-black flex items-center justify-center font-black text-lg shadow-lg shadow-amber-400/20">
+        <i class="ph-bold ph-waveform"></i>
+      </div>
+      <div>
+        <h1 class="text-sm font-bold tracking-wider text-white uppercase flex items-center gap-2">
+          SyncStage <span class="text-[10px] bg-amber-400/20 text-amber-300 border border-amber-400/40 px-1.5 py-0.5 rounded font-mono">v1.2 OSU-TIMING</span>
+        </h1>
+        <p class="text-xs text-zinc-400">Rehearsal Click, Bar Sweeper & Chord Visualizer</p>
+      </div>
+    </div>
+
+    <!-- Mode / Action buttons -->
+    <div class="flex items-center gap-2">
+      <!-- Medley / Multi-Song Mode Toggle -->
+      <label class="cursor-pointer bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs px-2.5 py-1.5 rounded-md border border-zinc-700 flex items-center gap-1.5 transition select-none">
+        <input type="checkbox" id="toggle-medley-mode" class="accent-amber-400 w-3.5 h-3.5 cursor-pointer">
+        <span class="font-semibold text-amber-300 flex items-center gap-1"><i class="ph-bold ph-music-notes-plus"></i> Multi-Song Medley</span>
+      </label>
+
+      <!-- OSU File Import -->
+      <label class="cursor-pointer bg-red-600/90 hover:bg-red-500 text-white font-semibold text-xs px-3 py-1.5 rounded-md border border-red-500 flex items-center gap-1.5 shadow transition">
+        <i class="ph-bold ph-file-text text-sm"></i>
+        <span id="osu-filename-lbl">Import .osu</span>
+        <input type="file" id="osu-file-input" accept=".osu,text/plain" class="hidden">
+      </label>
+
+      <!-- Paste .osu modal trigger -->
+      <button id="btn-paste-osu-modal" class="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs px-2.5 py-1.5 rounded-md border border-zinc-700 flex items-center gap-1 transition" title="Paste raw .osu text">
+        <i class="ph ph-clipboard-text"></i>
+        <span>Paste .osu</span>
+      </button>
+
+      <!-- Audio file upload -->
+      <div class="flex items-center gap-1">
+        <label class="cursor-pointer bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs px-3 py-1.5 rounded-md border border-zinc-700 flex items-center gap-1.5 transition">
+          <i id="audio-status-icon" class="ph ph-upload-simple text-sm text-amber-400"></i>
+          <span id="audio-filename-lbl">Load MP3/WAV</span>
+          <input type="file" id="audio-file-input" accept="audio/*" class="hidden">
+        </label>
+        <button id="btn-clear-audio" class="hidden text-zinc-500 hover:text-red-400 p-1.5 rounded bg-zinc-900 border border-zinc-800 transition text-xs" title="Remove cached audio">
+          <i class="ph-bold ph-trash"></i>
+        </button>
+      </div>
+
+      <!-- Fullscreen / Video Mode button -->
+      <button id="btn-video-mode" class="bg-amber-400 hover:bg-amber-300 text-black font-semibold text-xs px-3.5 py-1.5 rounded-md flex items-center gap-1.5 shadow transition">
+        <i class="ph-bold ph-presentation text-sm"></i>
+        <span>Video Stage Mode</span>
+      </button>
+
+      <!-- Save / Export Project -->
+      <button id="btn-export-project" class="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs px-2.5 py-1.5 rounded-md border border-zinc-700 flex items-center gap-1.5 transition" title="Save & Export full chart (.json)">
+        <i class="ph-bold ph-floppy-disk text-amber-400"></i>
+        <span>Save</span>
+      </button>
+
+      <!-- Open / Import Project -->
+      <label class="cursor-pointer bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs px-2.5 py-1.5 rounded-md border border-zinc-700 flex items-center gap-1.5 transition" title="Open saved project (.json)">
+        <i class="ph-bold ph-folder-open text-sky-400"></i>
+        <span>Open</span>
+        <input type="file" id="project-file-input" accept=".json,application/json" class="hidden">
+      </label>
+
+      <!-- Visualizer Look-Ahead Settings Modal Trigger -->
+      <button id="btn-open-settings-modal" class="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs px-2.5 py-1.5 rounded-md border border-zinc-700 flex items-center gap-1.5 transition" title="Visualizer Look-Ahead & Preview Settings">
+        <i class="ph-bold ph-gear text-amber-400"></i>
+        <span>Settings</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- MAIN APP CONTAINER -->
+  <div class="flex-1 flex flex-col xl:flex-row overflow-hidden min-h-0">
+
+    <!-- LEFT: MAIN VISUALIZER STAGE -->
+    <main id="main-stage-col" class="flex-1 flex flex-col p-3 md:p-5 bg-zinc-950 overflow-y-auto min-h-0 transition-all duration-200">
+
+      <!-- STAGE WRAPPER / PREVIEW CANVAS -->
+      <div id="visualizer-wrapper" class="relative w-full aspect-[16/9] max-w-5xl mx-auto rounded-xl overflow-hidden screen-canvas-container border border-zinc-800 flex flex-col justify-between p-6 select-none transition-all duration-200">
+        
+        <!-- EXIT & FLOATING CONTROLS (Visible in Video Mode) -->
+        <div id="video-mode-controls" class="hidden absolute top-4 right-5 z-50 flex items-center gap-2">
+          <!-- Floating Play/Pause in Stage Mode -->
+          <button id="btn-stage-play" class="bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-700 text-amber-400 text-xs px-3 py-1.5 rounded-full backdrop-blur transition flex items-center gap-1.5 shadow-lg">
+            <i id="stage-play-icon" class="ph-fill ph-play text-sm"></i>
+            <span id="stage-play-text">Play</span>
+          </button>
+          <!-- Exit Stage Mode -->
+          <button id="btn-exit-video" class="bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 text-xs px-3 py-1.5 rounded-full backdrop-blur transition flex items-center gap-1.5 shadow-lg">
+            <i class="ph ph-x-circle text-amber-400"></i> Exit Stage Mode [Esc]
+          </button>
+        </div>
+
+        <!-- TOP-LEFT SONG INFO OVERLAY (Matches user reference screenshot) -->
+        <div class="z-10 font-mono-header text-white leading-snug tracking-tight">
+          <div class="flex items-center gap-2.5 flex-wrap">
+            <div id="vis-title" class="text-xl md:text-2xl font-extrabold uppercase tracking-wider text-white">IN JESUS' NAME - DARLENE ZSCHECH</div>
+            <!-- ACTIVE SONG SECTION BADGE -->
+            <span id="vis-section-badge" class="px-2 py-0.5 rounded text-xs font-bold tracking-wider uppercase bg-amber-400 text-black shadow-md shadow-amber-400/30">
+              INTRO
+            </span>
+          </div>
+          <div class="text-sm md:text-base font-semibold text-zinc-200 mt-0.5 flex flex-wrap gap-x-2">
+            <span>BPM: <span id="vis-bpm" class="text-amber-300 font-bold">105</span></span>
+            <span class="text-zinc-500">|</span>
+            <span>Time Sig: <span id="vis-timesig" class="text-white">4/4</span></span>
+            <span class="text-zinc-500">|</span>
+            <span>Bar: <span id="vis-bar-num" class="text-amber-400">1</span></span>
+          </div>
+          <div class="text-sm md:text-base font-semibold text-zinc-200">
+            Key: <span id="vis-key" class="text-white">D</span>
+          </div>
+        </div>
+
+        <!-- MAIN INTERACTIVE CANVAS WITH IN-BAR CHORDS & LEADS -->
+        <div class="relative w-full my-auto flex-1 flex flex-col justify-center py-2">
+          
+          <!-- Unified Sweeper Box containing In-Bar Chords, Leads, Sweeping Line & Beat Ticks -->
+          <div id="sweeper-frame-container" class="relative w-full h-64 flex flex-col justify-between">
+            
+            <!-- Canvas layer: Direct GPU rendering of chords, leads, bar sweeper, and ticks -->
+            <canvas id="stage-canvas" class="w-full h-full block z-0"></canvas>
+
+          </div>
+
+        </div>
+
+        <!-- BOTTOM: 4-BAR OVERVIEW TIMELINE -->
+        <div class="z-10 w-full pt-2 border-t border-zinc-900">
+          <div class="text-[10px] font-mono tracking-wider text-zinc-400 uppercase mb-1.5 flex justify-between items-center">
+            <span class="flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+              4-Bar Rolling Overview
+            </span>
+            <span id="timeline-time-display" class="text-amber-400 font-mono font-bold">00:00.00 / 00:00.00</span>
+          </div>
+          <!-- Exactly 4 Measures displayed across full width -->
+          <div id="overview-bar-container" class="grid grid-cols-4 gap-2 w-full h-14 bg-zinc-950">
+            <!-- 4 measure cards dynamically populated -->
+          </div>
+        </div>
+
+      </div>
+
+      <!-- PLAYBACK & TRANSPORT CONTROLS -->
+      <div id="transport-controls-card" class="max-w-5xl mx-auto w-full mt-4 bg-zinc-900/90 border border-zinc-800 rounded-xl p-4 flex flex-col gap-3 transition-all duration-200">
+        <!-- Scrubber Progress Bar with Section & Song Change Markers -->
+        <div class="flex items-center gap-3">
+          <span id="scrub-current" class="text-xs font-mono text-zinc-400 w-12 text-right">00:00</span>
+          <div class="relative flex-1 flex flex-col justify-center py-1.5" id="timeline-interactive-wrapper">
+            <!-- Timeline Section Segments & Markers Track (Embedded inside track) -->
+            <div id="timeline-markers-track" class="relative w-full h-3 rounded-full overflow-hidden bg-zinc-800 flex items-stretch border border-zinc-700/60 cursor-pointer">
+              <!-- Dynamically populated proportional colored section segments -->
+            </div>
+
+            <!-- Native Scrubber Range overlaid transparently for smooth dragging -->
+            <input id="timeline-scrubber" type="range" min="0" max="100" step="0.05" value="0" class="absolute inset-0 w-full opacity-0 cursor-pointer z-20">
+
+            <!-- Playhead Needle that sweeps across the segmented track -->
+            <div id="timeline-needle" class="absolute top-1/2 -translate-y-1/2 w-1.5 h-5 bg-amber-400 rounded-full shadow-lg shadow-amber-400/80 pointer-events-none z-30 transition-none" style="left: 0%;"></div>
+
+            <!-- Floating Hover Tooltip Pill (Shows section, bar & time on hover without clutter) -->
+            <div id="timeline-hover-tooltip" class="hidden absolute -top-8 -translate-x-1/2 z-40 bg-zinc-900/95 border border-zinc-700 text-zinc-100 text-[10px] font-mono font-bold px-2 py-0.5 rounded shadow-xl pointer-events-none whitespace-nowrap">
+              <span id="tooltip-text">INTRO • Bar 1 (00:00)</span>
+            </div>
+          </div>
+          <span id="scrub-total" class="text-xs font-mono text-zinc-400 w-12">00:00</span>
+        </div>
+
+        <!-- Buttons Row -->
+        <div class="flex flex-wrap items-center justify-between gap-2.5">
+          <div class="flex items-center gap-2">
+            <!-- Jump Back -->
+            <button id="btn-prev-bar" title="Previous Bar" class="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition">
+              <i class="ph-bold ph-skip-back text-sm"></i>
+            </button>
+            <!-- Play / Pause -->
+            <button id="btn-play" class="px-4 py-2 rounded-lg bg-amber-400 hover:bg-amber-300 text-black font-bold flex items-center gap-2 shadow-lg shadow-amber-400/20 transition">
+              <i id="btn-play-icon" class="ph-fill ph-play text-base"></i>
+              <span id="btn-play-text">PLAY</span>
+            </button>
+            <!-- Stop -->
+            <button id="btn-stop" class="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition" title="Stop & Reset">
+              <i class="ph-bold ph-stop text-sm"></i>
+            </button>
+            <!-- Jump Next -->
+            <button id="btn-next-bar" title="Next Bar" class="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition">
+              <i class="ph-bold ph-skip-forward text-sm"></i>
+            </button>
+            <!-- Loop Bar Toggle -->
+            <button id="btn-loop-bar" class="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium border border-zinc-700 flex items-center gap-1.5 transition">
+              <i class="ph-bold ph-repeat text-sm"></i>
+              <span id="loop-state-text">Loop Bar: OFF</span>
+            </button>
+          </div>
+
+          <!-- Audio & Metronome Level Controls -->
+          <div class="flex items-center gap-3 bg-zinc-950 px-3 py-1 rounded-lg border border-zinc-800 flex-wrap">
+            <!-- Music Track Volume -->
+            <div class="flex items-center gap-1.5" title="Music Track Volume">
+              <i class="ph-bold ph-music-notes text-amber-400 text-xs"></i>
+              <span class="text-[11px] font-semibold text-zinc-300">Music</span>
+              <input type="range" id="music-vol" min="0" max="1" step="0.05" value="0.8" class="w-14 h-1.5 accent-amber-400 bg-zinc-800 cursor-pointer">
+            </div>
+
+            <div class="w-px h-3.5 bg-zinc-800"></div>
+
+            <!-- Metronome Controls -->
+            <label class="flex items-center gap-1.5 cursor-pointer">
+              <input type="checkbox" id="metronome-toggle" checked class="accent-amber-400 w-3.5 h-3.5 cursor-pointer">
+              <span class="text-xs font-semibold text-zinc-200 flex items-center gap-1"><i class="ph-bold ph-metronome text-amber-400"></i> Metronome</span>
+            </label>
+            <div class="flex items-center gap-1.5" title="Metronome Click Volume">
+              <i class="ph ph-speaker-low text-zinc-400 text-xs"></i>
+              <input type="range" id="metronome-vol" min="0" max="1" step="0.05" value="0.8" class="w-14 h-1.5 accent-amber-400 bg-zinc-800 cursor-pointer">
+            </div>
+          </div>
+
+          <!-- Tap Tempo / Quick sync -->
+          <button id="btn-tap-tempo" class="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-mono font-bold border border-zinc-700 transition">
+            TAP TEMPO
+          </button>
+        </div>
+      </div>
+
+    </main>
+
+    <!-- RIGHT: TIMING POINTS & MEASURE/CHORD EDITOR PANEL -->
+    <aside id="main-sidebar" class="w-full xl:w-[480px] 2xl:w-[520px] h-full max-h-screen border-t xl:border-t-0 xl:border-l border-zinc-800 bg-zinc-900/80 p-3 md:p-4 flex flex-col gap-3 transition-all duration-200 min-h-0 flex-shrink-0">
+      
+      <!-- TAB NAVIGATION -->
+      <div class="flex border-b border-zinc-800 text-xs font-semibold pb-1 flex-shrink-0">
+        <button id="tab-timing-btn" class="flex-1 py-1.5 text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent flex items-center justify-center gap-1.5">
+          <i class="ph-bold ph-timer"></i> osu! Timing
+        </button>
+        <button id="tab-sections-btn" class="flex-1 py-1.5 text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent flex items-center justify-center gap-1.5">
+          <i class="ph-bold ph-bookmarks"></i> Sections
+        </button>
+        <button id="tab-chords-btn" class="flex-1 py-1.5 text-amber-400 border-b-2 border-amber-400 flex items-center justify-center gap-1.5">
+          <i class="ph-bold ph-music-notes"></i> Chords
+        </button>
+      </div>
+
+      <!-- TAB 1: TIMING POINTS (OSU STYLE) -->
+      <div id="tab-timing-panel" class="hidden flex-col gap-4 overflow-y-auto flex-1 min-h-0 pr-1">
+        <div class="flex items-center justify-between">
+          <h2 class="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-red-500 inline-block animate-ping"></span>
+            Timing Sections (BPM Changes)
+          </h2>
+          <div class="flex items-center gap-1">
+            <button id="btn-demo-osu" class="text-[10px] bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-2 py-1 rounded border border-zinc-700" title="Load sample variable-tempo osu chart">
+              Demo .osu
+            </button>
+            <button id="btn-add-timing" class="text-xs bg-amber-400 hover:bg-amber-300 text-black font-semibold px-2.5 py-1 rounded flex items-center gap-1">
+              <i class="ph-bold ph-plus"></i> Add Point
+            </button>
+          </div>
+        </div>
+
+        <p class="text-[11px] text-zinc-400 leading-relaxed">
+          Import a <code>.osu</code> file to pull exact uninherited timing points (BPM, offsets, and time signatures).
+        </p>
+
+        <!-- Current Active Timing Point Card -->
+        <div class="bg-zinc-950 border border-amber-400/30 rounded-lg p-3">
+          <div class="text-[10px] font-mono uppercase text-amber-400 mb-1">Active Timing Point</div>
+          <div class="flex justify-between items-baseline">
+            <div class="text-lg font-mono font-bold text-white"><span id="active-point-bpm">130</span> BPM</div>
+            <div class="text-xs font-mono text-zinc-400">Offset: <span id="active-point-offset">0.00s</span></div>
+            <div class="text-xs font-mono bg-zinc-800 px-2 py-0.5 rounded text-amber-300" id="active-point-meter">4/4</div>
+          </div>
+        </div>
+
+        <!-- List of timing points -->
+        <div id="timing-points-list" class="flex flex-col gap-2 max-h-72 overflow-y-auto pr-1">
+          <!-- Populated by JS -->
+        </div>
+
+        <!-- Button to insert timing point at current position -->
+        <div class="flex gap-2">
+          <button id="btn-stamp-timing" class="flex-1 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold rounded-lg border border-zinc-700 flex items-center justify-center gap-2 transition">
+            <i class="ph-bold ph-map-pin text-amber-400"></i> Stamp Current Time
+          </button>
+          <button id="btn-demo-34" class="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-amber-300 text-xs font-semibold rounded-lg border border-amber-400/30 transition" title="Test a 3/4 time signature change at Bar 5">
+            + 3/4 Demo
+          </button>
+        </div>
+      </div>
+
+      <!-- TAB 2: SONG SECTIONS MANAGER -->
+      <div id="tab-sections-panel" class="hidden flex-col gap-4 overflow-y-auto flex-1 min-h-0 pr-1">
+        <div class="flex items-center justify-between">
+          <h2 class="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+            <i class="ph-bold ph-flag-banner text-amber-400"></i>
+            Song Sections & Medley
+          </h2>
+          <div class="flex items-center gap-1">
+            <button id="btn-demo-medley" class="text-[10px] bg-zinc-800 hover:bg-zinc-700 text-amber-300 px-2 py-1 rounded border border-amber-400/30 font-semibold" title="Load sample multi-song worship medley">
+              Demo Medley
+            </button>
+            <button id="btn-add-section" class="text-xs bg-amber-400 hover:bg-amber-300 text-black font-semibold px-2.5 py-1 rounded flex items-center gap-1">
+              <i class="ph-bold ph-plus"></i> Add Section
+            </button>
+          </div>
+        </div>
+
+        <p class="text-[11px] text-zinc-400 leading-relaxed">
+          Designate any section as a <strong>New Song</strong> to dynamically update the song title, artist, and key when playback transitions across songs in a setlist.
+        </p>
+
+        <!-- 1-CLICK SECTION RENAME PRESET TOOLBAR IN SECTIONS TAB -->
+        <div class="bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 flex flex-col gap-1.5 flex-shrink-0">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] font-mono font-bold uppercase text-zinc-400 flex items-center gap-1.5">
+              <i class="ph-bold ph-tag text-amber-400"></i> Rename Selected Section:
+            </span>
+            <span id="active-selected-sec-pill-tab2" class="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-amber-400/20 text-amber-300 border border-amber-400/40 truncate max-w-[150px]">
+              Intro
+            </span>
+          </div>
+          <div class="flex flex-wrap gap-1 pt-1">
+            <button class="btn-preset-rename text-[10px] font-mono font-bold bg-zinc-900 hover:bg-amber-400 hover:text-black text-zinc-200 px-2 py-1 rounded border border-zinc-700 transition" data-name="Intro">Intro</button>
+            <button class="btn-preset-rename text-[10px] font-mono font-bold bg-zinc-900 hover:bg-amber-400 hover:text-black text-zinc-200 px-2 py-1 rounded border border-zinc-700 transition" data-name="Verse">Verse</button>
+            <button class="btn-preset-rename text-[10px] font-mono font-bold bg-zinc-900 hover:bg-amber-400 hover:text-black text-zinc-200 px-2 py-1 rounded border border-zinc-700 transition" data-name="Pre-Chorus">Pre-Chorus</button>
+            <button class="btn-preset-rename text-[10px] font-mono font-bold bg-zinc-900 hover:bg-amber-400 hover:text-black text-zinc-200 px-2 py-1 rounded border border-zinc-700 transition" data-name="Chorus">Chorus</button>
+            <button class="btn-preset-rename text-[10px] font-mono font-bold bg-zinc-900 hover:bg-amber-400 hover:text-black text-zinc-200 px-2 py-1 rounded border border-zinc-700 transition" data-name="Bridge">Bridge</button>
+            <button class="btn-preset-rename text-[10px] font-mono font-bold bg-zinc-900 hover:bg-amber-400 hover:text-black text-zinc-200 px-2 py-1 rounded border border-zinc-700 transition" data-name="Tag">Tag</button>
+            <button class="btn-preset-rename text-[10px] font-mono font-bold bg-zinc-900 hover:bg-amber-400 hover:text-black text-zinc-200 px-2 py-1 rounded border border-zinc-700 transition" data-name="Instrumental">Instrumental</button>
+            <button class="btn-preset-rename text-[10px] font-mono font-bold bg-zinc-900 hover:bg-amber-400 hover:text-black text-zinc-200 px-2 py-1 rounded border border-zinc-700 transition" data-name="Interlude">Interlude</button>
+            <button class="btn-preset-rename text-[10px] font-mono font-bold bg-zinc-900 hover:bg-amber-400 hover:text-black text-zinc-200 px-2 py-1 rounded border border-zinc-700 transition" data-name="Transition">Transition</button>
+            <button class="btn-preset-rename text-[10px] font-mono font-bold bg-zinc-900 hover:bg-amber-400 hover:text-black text-zinc-200 px-2 py-1 rounded border border-zinc-700 transition" data-name="Refrain">Refrain</button>
+            <button class="btn-preset-rename text-[10px] font-mono font-bold bg-zinc-900 hover:bg-amber-400 hover:text-black text-zinc-200 px-2 py-1 rounded border border-zinc-700 transition" data-name="Outro">Outro</button>
+          </div>
+        </div>
+
+        <!-- Quick Section Preset Chips (Add at current bar) -->
+        <div class="flex flex-wrap gap-1.5 pt-1">
+          <span class="text-[10px] text-zinc-500 font-mono w-full">Quick add new section at current bar:</span>
+          <button class="btn-quick-sec text-[10px] font-mono font-bold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-2 py-1 rounded border border-zinc-700" data-name="Intro">+ Intro</button>
+          <button class="btn-quick-sec text-[10px] font-mono font-bold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-2 py-1 rounded border border-zinc-700" data-name="Verse">+ Verse</button>
+          <button class="btn-quick-sec text-[10px] font-mono font-bold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-2 py-1 rounded border border-zinc-700" data-name="Pre-Chorus">+ Pre-Chorus</button>
+          <button class="btn-quick-sec text-[10px] font-mono font-bold bg-zinc-800 hover:bg-zinc-700 text-amber-300 px-2 py-1 rounded border border-amber-400/40" data-name="Chorus">+ Chorus</button>
+          <button class="btn-quick-sec text-[10px] font-mono font-bold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-2 py-1 rounded border border-zinc-700" data-name="Bridge">+ Bridge</button>
+          <button class="btn-quick-sec text-[10px] font-mono font-bold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-2 py-1 rounded border border-zinc-700" data-name="Tag">+ Tag</button>
+          <button class="btn-quick-sec text-[10px] font-mono font-bold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-2 py-1 rounded border border-zinc-700" data-name="Instrumental">+ Instrumental</button>
+          <button class="btn-quick-sec text-[10px] font-mono font-bold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-2 py-1 rounded border border-zinc-700" data-name="Interlude">+ Interlude</button>
+          <button class="btn-quick-sec text-[10px] font-mono font-bold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-2 py-1 rounded border border-zinc-700" data-name="Transition">+ Transition</button>
+          <button class="btn-quick-sec text-[10px] font-mono font-bold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-2 py-1 rounded border border-zinc-700" data-name="Outro">+ Outro</button>
+          <button id="btn-quick-new-song" class="text-[10px] font-mono font-bold bg-amber-400 text-black hover:bg-amber-300 px-2.5 py-1 rounded shadow" title="Add a section that starts a brand new song">+ New Song</button>
+        </div>
+
+        <!-- Sections List -->
+        <div id="sections-list-container" class="flex flex-col gap-2 max-h-80 overflow-y-auto pr-1 mt-1">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+      <!-- TAB 3: CHORDS & SONG METADATA EDITOR -->
+      <div id="tab-chords-panel" class="flex flex-col gap-3 overflow-y-auto flex-1 min-h-0 pr-1.5">
+        
+        <!-- Song Header Metadata Editor -->
+        <div class="bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 flex flex-col gap-2 flex-shrink-0">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-zinc-400">Song Info Header</h3>
+          
+          <div>
+            <label class="text-[10px] font-mono text-zinc-400">Default Title & Artist</label>
+            <input type="text" id="edit-song-title" value="IN JESUS' NAME - DARLENE ZSCHECH" class="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-white uppercase font-mono">
+          </div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="text-[10px] font-mono text-zinc-400">Default Key</label>
+              <input type="text" id="edit-song-key" value="D" class="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-white font-mono uppercase">
+            </div>
+            <div>
+              <label class="text-[10px] font-mono text-zinc-400">Total Measures</label>
+              <input type="number" id="edit-total-measures" min="2" max="2000" value="24" class="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-white font-mono">
+            </div>
+          </div>
+        </div>
+
+        <!-- Measures Chord & Lead List Header -->
+        <div class="flex items-center justify-between flex-shrink-0">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-zinc-400">Measures & Leads</h3>
+          <div class="flex items-center gap-2">
+            <button id="btn-collapse-all-sections" class="text-[10px] text-zinc-400 hover:text-white font-mono uppercase bg-zinc-900 border border-zinc-800 px-1.5 py-0.5 rounded">
+              Collapse All
+            </button>
+            <button id="btn-expand-all-sections" class="text-[10px] text-amber-400 hover:text-amber-300 font-mono uppercase bg-zinc-900 border border-zinc-800 px-1.5 py-0.5 rounded">
+              Expand All
+            </button>
+          </div>
+        </div>
+
+        <!-- MULTI-SELECT & BATCH CLIPBOARD ACTION BAR -->
+        <div id="batch-selection-toolbar" class="bg-zinc-900/90 border border-amber-400/40 rounded-lg p-2 flex flex-col gap-1.5 shadow-md flex-shrink-0">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <input type="checkbox" id="chk-master-select-all" class="accent-amber-400 w-3.5 h-3.5 cursor-pointer rounded" title="Select / Deselect all measures">
+              <span id="batch-selection-count-lbl" class="text-[11px] font-mono font-bold text-amber-300">0 bars selected</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button id="btn-batch-copy-selected" class="px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 rounded text-[10px] font-mono font-bold flex items-center gap-1 transition" title="Copy checked bars into clipboard">
+                <i class="ph-bold ph-copy"></i> Copy Selected
+              </button>
+              <button id="btn-batch-clear-selection" class="px-1.5 py-0.5 text-zinc-500 hover:text-zinc-300 text-[10px] font-mono" title="Clear selection">
+                Clear
+              </button>
+            </div>
+          </div>
+
+          <!-- Multi-Bar Paste Destination controls -->
+          <div class="flex items-center gap-2 pt-1 border-t border-zinc-800/80 text-[11px] font-mono">
+            <span class="text-zinc-400">Paste clipboard at Bar:</span>
+            <input type="number" id="batch-paste-dest-bar" min="1" max="2000" value="1" class="w-12 bg-zinc-950 border border-zinc-750 rounded px-1.5 py-0.5 text-center text-amber-300 font-bold">
+            <button id="btn-batch-paste-at" class="px-2.5 py-1 bg-amber-400 hover:bg-amber-300 text-black font-bold rounded flex items-center gap-1 shadow text-[10px] transition">
+              <i class="ph-bold ph-clipboard"></i> Paste Bars
+            </button>
+            <span id="batch-clipboard-status" class="text-zinc-500 text-[10px] ml-auto truncate max-w-[110px]">clipboard empty</span>
+          </div>
+        </div>
+
+        <!-- QUICK COPY & PASTE MEASURE RANGE TOOL -->
+        <div class="bg-zinc-950 border border-zinc-800 rounded-lg p-2 flex flex-col gap-1.5 flex-shrink-0">
+          <div class="text-[10px] font-mono font-bold text-amber-400 uppercase flex items-center justify-between">
+            <span class="flex items-center gap-1.5"><i class="ph-bold ph-copy"></i> Copy & Duplicate Measures</span>
+            <span id="copy-status-msg" class="text-zinc-500 font-normal lowercase">ready</span>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap text-xs font-mono">
+            <span class="text-zinc-400 text-[11px]">Copy Bars:</span>
+            <input type="number" id="copy-from-bar" min="1" max="128" value="1" class="w-12 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 text-center text-white">
+            <span class="text-zinc-400 text-[11px]">to</span>
+            <input type="number" id="copy-to-bar" min="1" max="128" value="4" class="w-12 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 text-center text-white">
+            <span class="text-zinc-400 text-[11px]">Paste at:</span>
+            <input type="number" id="paste-start-bar" min="1" max="128" value="5" class="w-12 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 text-center text-amber-300 font-bold">
+            <button id="btn-copy-range" class="ml-auto px-2.5 py-1 bg-amber-400 hover:bg-amber-300 text-black font-bold text-[11px] rounded flex items-center gap-1 shadow">
+              <i class="ph-bold ph-clipboard"></i> Paste
+            </button>
+          </div>
+        </div>
+
+        <div class="p-2 bg-zinc-950 border border-zinc-800 rounded text-[11px] text-zinc-400 leading-relaxed font-mono flex-shrink-0">
+          <div class="text-amber-400 font-bold mb-0.5">Intuitive Spacing:</div>
+          <div>• Space items across the bar: <span class="text-zinc-200">"A . . E/G#"</span></div>
+          <div>• For off-beat hits, simply shift the chord/note forward with spaces: <span class="text-zinc-200">". . . D"</span></div>
+          <div>• Works identically for both Chords (top) and Lead notes (bottom)</div>
+        </div>
+
+        <!-- Independently scrolling measures list -->
+        <div id="measures-editor-list" class="flex flex-col gap-2.5 pb-8">
+          <!-- Dynamically populated measures editor -->
+        </div>
+
+      </div>
+
+    </aside>
+  </div>
+
+  <!-- PASTE OSU MODAL -->
+  <div id="paste-osu-modal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-xl p-4 flex flex-col gap-3 shadow-2xl">
+      <div class="flex items-center justify-between border-b border-zinc-800 pb-2">
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+          <i class="ph-bold ph-code text-red-400"></i> Paste .osu Beatmap File Content
+        </h3>
+        <button id="btn-close-paste-modal" class="text-zinc-400 hover:text-white text-lg">
+          <i class="ph ph-x"></i>
+        </button>
+      </div>
+      <p class="text-xs text-zinc-400">
+        Paste raw text from any <code>.osu</code> file. We'll parse the <code>[Metadata]</code>, <code>[General]</code>, and <code>[TimingPoints]</code> sections automatically.
+      </p>
+      <textarea id="paste-osu-textarea" rows="10" placeholder="osu file format v14&#10;[General]&#10;AudioFilename: audio.mp3&#10;[Metadata]&#10;Title:Song Title&#10;Artist:Artist Name&#10;[TimingPoints]&#10;0,461.538461538462,4,1,0,100,1,0" class="w-full bg-zinc-950 border border-zinc-800 rounded p-2.5 font-mono text-xs text-zinc-200 focus:outline-none focus:border-amber-400"></textarea>
+      <div class="flex justify-end gap-2 pt-2 border-t border-zinc-800">
+        <button id="btn-cancel-paste" class="px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 rounded">Cancel</button>
+        <button id="btn-parse-pasted-osu" class="px-4 py-1.5 text-xs font-semibold bg-red-600 hover:bg-red-500 text-white rounded shadow">Parse & Apply</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- VISUALIZER PREVIEW & LOOK-AHEAD SETTINGS MODAL -->
+  <div id="settings-modal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-md p-4 flex flex-col gap-4 shadow-2xl">
+      <div class="flex items-center justify-between border-b border-zinc-800 pb-2">
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+          <i class="ph-bold ph-sliders-horizontal text-amber-400"></i> Stage Look-Ahead Settings
+        </h3>
+        <button id="btn-close-settings-modal" class="text-zinc-400 hover:text-white text-lg">
+          <i class="ph ph-x"></i>
+        </button>
+      </div>
+
+      <!-- Display Layout Mode Selection -->
+      <div class="flex flex-col gap-2">
+        <label class="text-xs font-mono font-bold text-zinc-300">Stage Layout Mode:</label>
+        <div class="grid grid-cols-2 gap-2">
+          <label class="cursor-pointer border border-zinc-700 has-[:checked]:border-amber-400 has-[:checked]:bg-amber-400/10 rounded-lg p-2.5 flex flex-col gap-1 transition">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-white">2-Bar Alternating</span>
+              <input type="radio" name="opt-layout-mode" value="two_bar" class="accent-amber-400" checked>
+            </div>
+            <p class="text-[10px] text-zinc-400 leading-tight">Sweeper alternates between Deck A & B; idle deck always previews the upcoming bar.</p>
+          </label>
+
+          <label class="cursor-pointer border border-zinc-700 has-[:checked]:border-amber-400 has-[:checked]:bg-amber-400/10 rounded-lg p-2.5 flex flex-col gap-1 transition">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-white">1-Bar Classic</span>
+              <input type="radio" name="opt-layout-mode" value="single_bar" class="accent-amber-400">
+            </div>
+            <p class="text-[10px] text-zinc-400 leading-tight">Single wide bar with optional Beat 4 look-ahead ghosting.</p>
+          </label>
+        </div>
+      </div>
+
+      <!-- Beat 4 Pre-Shift Ghosting Toggle -->
+      <div class="flex items-center justify-between p-2.5 bg-zinc-950 border border-zinc-800 rounded-lg">
+        <div class="flex flex-col">
+          <span class="text-xs font-bold text-zinc-200">Beat 4 Pre-Shift Ghosting</span>
+          <span class="text-[10px] text-zinc-400">Previews upcoming downbeat chords at Beat 4 before measure flips.</span>
+        </div>
+        <input type="checkbox" id="chk-beat4-ghost" checked class="accent-amber-400 w-4 h-4 cursor-pointer">
+      </div>
+
+      <!-- Next Bar Preview Opacity Slider -->
+      <div class="flex flex-col gap-1.5 p-2.5 bg-zinc-950 border border-zinc-800 rounded-lg">
+        <div class="flex items-center justify-between text-xs font-mono">
+          <span class="text-zinc-300 font-bold">Next Bar Preview Opacity:</span>
+          <span id="preview-opacity-val" class="text-amber-400 font-bold">50%</span>
+        </div>
+        <input type="range" id="range-preview-opacity" min="0.15" max="0.85" step="0.05" value="0.50" class="w-full accent-amber-400 bg-zinc-800 h-1.5 rounded cursor-pointer">
+      </div>
+
+      <div class="flex justify-end pt-2 border-t border-zinc-800">
+        <button id="btn-save-settings" class="px-4 py-1.5 text-xs font-semibold bg-amber-400 hover:bg-amber-300 text-black rounded shadow font-mono">
+          Done
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- JAVASCRIPT LOGIC -->
+  <script>
+    /* =========================================================================
+       1. STATE MANAGEMENT & PRESETS
+       ========================================================================= */
+    const State = {
+      song: {
+        title: "IN JESUS' NAME - DARLENE ZSCHECH",
+        key: "D",
+        totalMeasures: 24
+      },
+      // Visualizer settings for reaction time & look-ahead
+      settings: {
+        layoutMode: "two_bar", // 'two_bar' (Active + Next) or 'single_bar' (Classic 1-bar)
+        beat4Ghosting: true,    // Flash upcoming chords at Beat 4
+        previewOpacity: 0.50    // Opacity of next bar preview
+      },
+      // Currently active/focused section ID for top rename buttons
+      selectedSectionId: 1,
+      // Track collapsed sections and songs in the chords editor by ID
+      collapsedSections: new Set(),
+      collapsedSongs: new Set(),
+      // Multi-select measure state & multi-bar clipboard
+      selectedBars: new Set(),
+      multiBarClipboard: null, // Array of { chordLine, leadLine }
+      // Medley / multi-song mode flag
+      isMedleyMode: false,
+      // Song structure sections (linked to measure/bar numbers)
+      sections: [
+        { id: 1, startBar: 1, name: "Intro", color: "#facc15", isNewSong: true, songTitle: "IN JESUS' NAME - DARLENE ZSCHECH", songKey: "D" },
+        { id: 2, startBar: 5, name: "Verse 1", color: "#60a5fa", isNewSong: false },
+        { id: 3, startBar: 13, name: "Chorus", color: "#f87171", isNewSong: false },
+        { id: 4, startBar: 21, name: "Tag", color: "#4ade80", isNewSong: false }
+      ],
+      // osu!-style uninherited timing points (sorted chronologically)
+      timingPoints: [
+        { id: 1, offset: 0.00, bpm: 105, beatsPerBar: 4 }
+      ],
+      // Structure per measure: freeform chord and lead strings with space-based positioning
+      measures: [
+        // Intro (Bars 1-4)
+        { bar: 1, chordLine: "D . . C", leadLine: "D5 . . E5" },
+        { bar: 2, chordLine: "D . . C", leadLine: "F#5 . . E5" },
+        { bar: 3, chordLine: "D . . C", leadLine: "D5 . . E5" },
+        { bar: 4, chordLine: "D . . .", leadLine: "F#5 . . ." },
+
+        // Verse 1 (Bars 5-12)
+        { bar: 5, chordLine: "G . Em7 .", leadLine: "B4 . . ." },
+        { bar: 6, chordLine: "Bm . D .", leadLine: "D5 . . ." },
+        { bar: 7, chordLine: "G . Em7 .", leadLine: "B4 . . ." },
+        { bar: 8, chordLine: "D . . .", leadLine: "A4 . . ." },
+        { bar: 9, chordLine: "G . Em7 .", leadLine: "B4 . . ." },
+        { bar: 10, chordLine: "Bm . D .", leadLine: "D5 . . ." },
+        { bar: 11, chordLine: "G . Em7 .", leadLine: "E5 . F#5 ." },
+        { bar: 12, chordLine: "Asus . A .", leadLine: "E5 . . ." },
+
+        // Chorus (Bars 13-20)
+        { bar: 13, chordLine: "G . . .", leadLine: "D5 . . ." },
+        { bar: 14, chordLine: "Bm . . .", leadLine: "F#5 . . ." },
+        { bar: 15, chordLine: "A . . .", leadLine: "E5 . . ." },
+        { bar: 16, chordLine: "D/F# . . .", leadLine: "F#5 . . ." },
+        { bar: 17, chordLine: "G . . .", leadLine: "D5 . . ." },
+        { bar: 18, chordLine: "Bm . . .", leadLine: "F#5 . . ." },
+        { bar: 19, chordLine: "Asus . A .", leadLine: "E5 . . ." },
+        { bar: 20, chordLine: "D . . .", leadLine: "D5 . . ." },
+
+        // Tag / Turn (Bars 21-24)
+        { bar: 21, chordLine: "G . Em7 .", leadLine: "B4 . D5 ." },
+        { bar: 22, chordLine: "Bm . D .", leadLine: "F#5 . E5 ." },
+        { bar: 23, chordLine: "G . Em7 .", leadLine: "B4 . . ." },
+        { bar: 24, chordLine: "D . . .", leadLine: "D5 . . ." }
+      ],
+      
+      // Hardware-locked playback state
+      isPlaying: false,
+      currentTime: 0,
+      audioCtxStartTime: 0,
+      songPlaybackOffset: 0,
+      loopBar: false,
+      loopTargetBar: 1,
+      currentGlobalBar: 1,
+      currentBeat: 1,
+      totalDuration: 55.0,
+      
+      // Audio engine
+      audioBuffer: null,
+      audioSource: null,
+      audioGainNode: null,
+      audioCtx: null,
+      musicVolume: 0.8,
+      metronomeEnabled: true,
+      metronomeVolume: 0.8,
+      
+      // Video mode
+      isVideoMode: false
+    };
+
+    /* Helper: Retrieve active section and active song info for a given bar number */
+    function getSectionAtBar(barNumber) {
+      const sorted = [...State.sections].sort((a, b) => a.startBar - b.startBar);
+      let active = null;
+      let activeSongSection = null;
+
+      for (let sec of sorted) {
+        if (barNumber >= sec.startBar) {
+          active = sec;
+          if (sec.isNewSong) {
+            activeSongSection = sec;
+          }
+        } else {
+          break;
+        }
+      }
+
+      // If active section itself isn't a new song, find the most recent song before it
+      let songTitle = State.song.title;
+      // Key can be changed per section even in standard single-song mode
+      let songKey = (active && active.songKey) ? active.songKey : State.song.key;
+
+      if (State.isMedleyMode) {
+        if (activeSongSection && activeSongSection.songTitle) {
+          songTitle = activeSongSection.songTitle;
+          songKey = (active && active.songKey) ? active.songKey : (activeSongSection.songKey || State.song.key);
+        }
+      }
+
+      return {
+        ...(active || { name: "Section", color: "#facc15", startBar: 1, isNewSong: false, songKey: State.song.key }),
+        currentSongTitle: songTitle,
+        currentSongKey: songKey
+      };
+    }
+
+    /* Cohesive per-song color palette generator */
+    const SONG_PALETTES = [
+      { name: "Amber Gold",  base: "#facc15", intro: "#eab308", verse: "#fde047", pre: "#f59e0b", chorus: "#fbbf24", bridge: "#d97706", outro: "#ca8a04", other: "#fef08a" },
+      { name: "Ocean Blue",  base: "#38bdf8", intro: "#0284c7", verse: "#60a5fa", pre: "#38bdf8", chorus: "#2563eb", bridge: "#0ea5e9", outro: "#1d4ed8", other: "#93c5fd" },
+      { name: "Emerald Mint",base: "#4ade80", intro: "#16a34a", verse: "#22c55e", pre: "#86efac", chorus: "#15803d", bridge: "#10b981", outro: "#047857", other: "#bbf7d0" },
+      { name: "Crimson Rose",base: "#f87171", intro: "#dc2626", verse: "#fb7185", pre: "#f43f5e", chorus: "#e11d48", bridge: "#be123c", outro: "#9f1239", other: "#fda4af" },
+      { name: "Royal Violet",base: "#c084fc", intro: "#7c3aed", verse: "#a855f7", pre: "#d8b4fe", chorus: "#6d28d9", bridge: "#9333ea", outro: "#5b21b6", other: "#e9d5ff" },
+      { name: "Sunset Orange",base: "#fb923c", intro: "#ea580c", verse: "#f97316", pre: "#fdba74", chorus: "#c2410c", bridge: "#d97706", outro: "#9a3412", other: "#fed7aa" }
+    ];
+
+    function getSongPalette(songIndex) {
+      return SONG_PALETTES[Math.abs(songIndex) % SONG_PALETTES.length];
+    }
+
+    function getSectionColorFromPalette(palette, secName) {
+      const lower = (secName || '').toLowerCase().trim();
+      if (lower.includes('intro')) return palette.intro;
+      if (lower.includes('verse')) return palette.verse;
+      if (lower.includes('pre')) return palette.pre;
+      if (lower.includes('chorus') || lower.includes('hook') || lower.includes('refrain')) return palette.chorus;
+      if (lower.includes('bridge') || lower.includes('vamp')) return palette.bridge;
+      if (lower.includes('tag')) return palette.outro;
+      if (lower.includes('interlude') || lower.includes('instrumental') || lower.includes('solo')) return palette.other;
+      if (lower.includes('transition')) return palette.pre;
+      if (lower.includes('outro') || lower.includes('ending')) return palette.outro;
+      return palette.other;
+    }
+
+    /* =========================================================================
+       2. HARDWARE AUDIO CONTEXT & CLOCK
+       ========================================================================= */
+    let audioCtx = null;
+    function getAudioContext() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        State.audioCtx = audioCtx;
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      return audioCtx;
+    }
+
+    function getAudioClockTime() {
+      const ctx = getAudioContext();
+      if (!State.isPlaying) return State.currentTime;
+      return State.songPlaybackOffset + (ctx.currentTime - State.audioCtxStartTime);
+    }
+
+    function playClickAtExactTime(isDownbeat, audioTime) {
+      if (!State.metronomeEnabled) return;
+      try {
+        const ctx = getAudioContext();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        // 1760Hz (A6) downbeat, 880Hz (A5) normal beats
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(isDownbeat ? 1760 : 880, audioTime);
+
+        const targetVol = State.metronomeVolume * (isDownbeat ? 1.0 : 0.6);
+        gain.gain.setValueAtTime(targetVol, audioTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioTime + 0.035);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(audioTime);
+        osc.stop(audioTime + 0.04);
+      } catch (e) {
+        // audio throttling guard
+      }
+    }
+
+    // Precise beat scheduling using absolute beat indices
+    let schedulerTimerId = null;
+    let scheduledBeats = new Set();
+
+    function scheduleMetronome() {
+      if (!State.isPlaying) return;
+
+      const ctx = getAudioContext();
+      const lookahead = 0.15; // 150ms schedule horizon
+      const currentSongTime = getAudioClockTime();
+      const horizon = currentSongTime + lookahead;
+
+      // Scan all beats occurring between currentSongTime and horizon
+      const points = getSortedTimingPoints();
+      
+      // Find active or upcoming timing sections in range
+      points.forEach((pt, pIdx) => {
+        const nextPt = points[pIdx + 1];
+        const spBeat = 60 / pt.bpm;
+        const sectionStart = pt.offset;
+        const sectionEnd = nextPt ? nextPt.offset : (State.totalDuration + 5);
+
+        // Find the range of beat indices for this section that fall within our window
+        const winStart = Math.max(currentSongTime, sectionStart);
+        const winEnd = Math.min(horizon, sectionEnd);
+
+        if (winStart <= winEnd) {
+          const firstBeatIdx = Math.floor((winStart - pt.offset) / spBeat);
+          const lastBeatIdx = Math.ceil((winEnd - pt.offset) / spBeat);
+
+          for (let b = firstBeatIdx; b <= lastBeatIdx; b++) {
+            const beatTime = pt.offset + (b * spBeat);
+            if (beatTime >= currentSongTime && beatTime <= winEnd && beatTime <= State.totalDuration) {
+              const beatKey = `${pIdx}_${b}`;
+              if (!scheduledBeats.has(beatKey)) {
+                scheduledBeats.add(beatKey);
+                
+                // Determine if downbeat (mod beatsPerBar)
+                const beatsPerBar = pt.beatsPerBar || 4;
+                const isDownbeat = ((b % beatsPerBar + beatsPerBar) % beatsPerBar === 0);
+                
+                // Map song time directly to audioCtx timeline
+                const scheduleCtxTime = State.audioCtxStartTime + (beatTime - State.songPlaybackOffset);
+                if (scheduleCtxTime >= ctx.currentTime) {
+                  playClickAtExactTime(isDownbeat, scheduleCtxTime);
+                }
+              }
+            }
+          }
+        }
+      });
+
+      // Cleanup stale keys from set
+      if (scheduledBeats.size > 200) {
+        scheduledBeats.clear();
+      }
+
+      schedulerTimerId = setTimeout(scheduleMetronome, 25);
+    }
+
+    /* =========================================================================
+       3. OSU! TIMING POINT ENGINE (DYNAMIC MULTI-TEMPO)
+       ========================================================================= */
+    function getSortedTimingPoints() {
+      return [...State.timingPoints].sort((a, b) => a.offset - b.offset);
+    }
+
+    // Resolves timing point metrics with exact osu! measure boundaries
+    function getTimingMetricsAt(time) {
+      const points = getSortedTimingPoints();
+      if (!points.length) {
+        points.push({ id: 1, offset: 0, bpm: 120, beatsPerBar: 4 });
+      }
+
+      let activeIndex = 0;
+      for (let i = 0; i < points.length; i++) {
+        if (time >= points[i].offset) {
+          activeIndex = i;
+        } else {
+          break;
+        }
+      }
+
+      const activePoint = points[activeIndex];
+      const secondsPerBeat = 60 / activePoint.bpm;
+      const beatsPerBar = activePoint.beatsPerBar || 4;
+      const secondsPerBar = secondsPerBeat * beatsPerBar;
+
+      // Calculate total cumulative whole bars passed before this timing point
+      // Using Math.round on the section bar counts to preserve continuous integer measure grids
+      let accumulatedBars = 0;
+      for (let i = 0; i < activeIndex; i++) {
+        const curP = points[i];
+        const nextP = points[i + 1];
+        const span = Math.max(0, nextP.offset - curP.offset);
+        const curSecPerBar = (60 / curP.bpm) * (curP.beatsPerBar || 4);
+        accumulatedBars += Math.round(span / curSecPerBar);
+      }
+
+      const timeSincePoint = time - activePoint.offset;
+      let barProgress = 0;
+      let currentBeatInBar = 1;
+      let globalBarIndex = 1;
+
+      if (timeSincePoint < 0) {
+        // Pre-roll / before first timing point
+        const rawBars = timeSincePoint / secondsPerBar;
+        const wholeBarsBefore = Math.floor(rawBars);
+        barProgress = ((timeSincePoint % secondsPerBar) + secondsPerBar) % secondsPerBar / secondsPerBar;
+        currentBeatInBar = Math.floor(barProgress * beatsPerBar) + 1;
+        globalBarIndex = Math.max(1, Math.floor(accumulatedBars + wholeBarsBefore) + 1);
+      } else {
+        const barsSince = timeSincePoint / secondsPerBar;
+        const wholeBarsSince = Math.floor(barsSince);
+        barProgress = (timeSincePoint % secondsPerBar) / secondsPerBar;
+        currentBeatInBar = Math.floor(barProgress * beatsPerBar) + 1;
+        globalBarIndex = Math.floor(accumulatedBars + wholeBarsSince) + 1;
+      }
+
+      // Safeguard against NaN or infinite progress
+      barProgress = isNaN(barProgress) ? 0 : Math.min(Math.max(barProgress, 0), 0.9999);
+      currentBeatInBar = Math.min(Math.max(currentBeatInBar, 1), beatsPerBar);
+      globalBarIndex = Math.max(1, globalBarIndex);
+
+      return {
+        activePoint,
+        pointIndex: activeIndex,
+        secondsPerBeat,
+        secondsPerBar,
+        barProgress,
+        currentBeatInBar,
+        globalBarIndex
+      };
+    }
+
+    /* Helper: Calculate metrics for a specific target bar number */
+    function getMetricsForBar(targetBar) {
+      const points = getSortedTimingPoints();
+      let currentBarCount = 1;
+      let targetTime = points[0].offset;
+
+      for (let i = 0; i < points.length; i++) {
+        const cur = points[i];
+        const next = points[i + 1];
+        const beatsPerBar = cur.beatsPerBar || 4;
+        const spBar = (60 / cur.bpm) * beatsPerBar;
+
+        if (next) {
+          const sectionDuration = Math.max(0, next.offset - cur.offset);
+          const wholeBarsInSection = sectionDuration / spBar;
+          
+          if (targetBar < currentBarCount + wholeBarsInSection) {
+            const barOffset = targetBar - currentBarCount;
+            targetTime = cur.offset + (barOffset * spBar);
+            return getTimingMetricsAt(Math.max(0, targetTime + 0.001));
+          } else {
+            currentBarCount += wholeBarsInSection;
+          }
+        } else {
+          const barOffset = targetBar - currentBarCount;
+          targetTime = cur.offset + (barOffset * spBar);
+          return getTimingMetricsAt(Math.max(0, targetTime + 0.001));
+        }
+      }
+      return getTimingMetricsAt(Math.max(0, targetTime + 0.001));
+    }
+
+    /* Helper: Detect if a Key, BPM, or Time Signature change happens next bar */
+    function checkUpcomingChange(currentBar) {
+      const nextBar = currentBar + 1;
+      if (nextBar > State.song.totalMeasures) return null;
+
+      const curMetrics = getMetricsForBar(currentBar);
+      const nextMetrics = getMetricsForBar(nextBar);
+
+      const curSec = getSectionAtBar(currentBar);
+      const nextSec = getSectionAtBar(nextBar);
+
+      const alerts = [];
+
+      // Check Time Signature Change (checked first for rhythmic readiness)
+      const curMeter = curMetrics.activePoint.beatsPerBar || 4;
+      const nextMeter = nextMetrics.activePoint.beatsPerBar || 4;
+      if (curMeter !== nextMeter) {
+        alerts.push({ 
+          type: 'meter', 
+          label: `TIME SIG: ${curMeter}/4 → ${nextMeter}/4`, 
+          short: `${nextMeter}/4 METER`,
+          highlight: `${nextMeter}/4 TIME`
+        });
+      }
+
+      // Check BPM Change (threshold >= 2 BPM)
+      const curBpm = Math.round(curMetrics.activePoint.bpm);
+      const nextBpm = Math.round(nextMetrics.activePoint.bpm);
+      if (Math.abs(nextBpm - curBpm) >= 2) {
+        alerts.push({ 
+          type: 'bpm', 
+          label: `TEMPO: ${curBpm} → ${nextBpm} BPM`, 
+          short: `${nextBpm} BPM`,
+          highlight: `${nextBpm} BPM`
+        });
+      }
+
+      // Check Key Change (or New Song entry)
+      const curKey = curSec.currentSongKey || State.song.key;
+      const nextKey = nextSec.currentSongKey || State.song.key;
+      if (nextKey && curKey && nextKey !== curKey) {
+        alerts.push({ 
+          type: 'key', 
+          label: `KEY: ${curKey} → ${nextKey}`, 
+          short: `KEY ${nextKey}`,
+          highlight: `KEY ${nextKey}`
+        });
+      } else if (nextSec.isNewSong && State.isMedleyMode && nextSec.startBar === nextBar) {
+        alerts.push({ 
+          type: 'song', 
+          label: `NEW SONG: ${nextSec.currentSongTitle}`, 
+          short: `NEW SONG`,
+          highlight: `SONG CHG`
+        });
+      }
+
+      return alerts.length > 0 ? alerts : null;
+    }
+
+    function recalculateTotalDuration() {
+      // 1. Calculate time required to play all defined measures
+      const finalBarEndTime = getTimeForBarStart(State.song.totalMeasures + 1);
+
+      // 2. Also check the last timing point and last bookmark
+      const points = getSortedTimingPoints();
+      const lastPointOffset = points.length ? points[points.length - 1].offset : 0;
+      
+      let maxSectionTime = 0;
+      if (State.sections && State.sections.length) {
+        const lastSec = [...State.sections].sort((a, b) => b.startBar - a.startBar)[0];
+        if (lastSec) {
+          maxSectionTime = getTimeForBarStart(lastSec.startBar + 4);
+        }
+      }
+
+      const calculatedSongLength = Math.max(finalBarEndTime, lastPointOffset + 5, maxSectionTime, 10);
+
+      // 3. If an audio buffer is loaded, use the larger of the two to prevent clipping
+      if (State.audioBuffer && State.audioBuffer.duration > 0) {
+        State.totalDuration = Math.max(State.audioBuffer.duration, calculatedSongLength);
+      } else {
+        State.totalDuration = calculatedSongLength;
+      }
+
+      updateScrubberBounds();
+    }
+
+    function updateEngine() {
+      recalculateTotalDuration();
+      renderTimingPoints();
+      renderSectionsList();
+      renderMeasuresEditor();
+      renderOverviewTimeline();
+      renderTimelineMarkers();
+    }
+
+    /* =========================================================================
+       3B. TIMING POINTS LIST & OSU-STYLE EDITING
+       ========================================================================= */
+    function renderTimingPoints() {
+      const list = document.getElementById('timing-points-list');
+      if (!list) return;
+      list.innerHTML = '';
+
+      const points = getSortedTimingPoints();
+
+      points.forEach((tp, i) => {
+        const item = document.createElement('div');
+        item.className = "bg-zinc-950 border border-zinc-800 rounded p-2.5 flex items-center justify-between text-xs gap-2";
+        
+        item.innerHTML = `
+          <div class="flex items-center gap-2 flex-1">
+            <span class="w-2.5 h-2.5 rounded-full ${i === 0 ? 'bg-red-500' : 'bg-green-500'} flex-shrink-0"></span>
+            <div class="flex-1">
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <input type="number" min="30" max="320" value="${tp.bpm}" class="tp-bpm-input w-16 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 text-xs text-white font-mono font-bold">
+                <span class="text-zinc-400 font-mono text-[11px]">BPM</span>
+                
+                <!-- Time signature selector -->
+                <select class="tp-meter-select bg-zinc-900 border border-zinc-700 rounded px-1 py-0.5 text-[11px] text-amber-300 font-mono font-bold cursor-pointer">
+                  <option value="4" ${tp.beatsPerBar === 4 ? 'selected' : ''}>4/4</option>
+                  <option value="3" ${tp.beatsPerBar === 3 ? 'selected' : ''}>3/4</option>
+                  <option value="6" ${tp.beatsPerBar === 6 ? 'selected' : ''}>6/8</option>
+                  <option value="2" ${tp.beatsPerBar === 2 ? 'selected' : ''}>2/4</option>
+                  <option value="5" ${tp.beatsPerBar === 5 ? 'selected' : ''}>5/4</option>
+                </select>
+              </div>
+              <div class="flex items-center gap-1 mt-1 text-[10px] font-mono text-zinc-400">
+                <span>Offset:</span>
+                <input type="number" step="0.001" min="0" value="${tp.offset.toFixed(3)}" class="tp-offset-input w-20 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 text-[10px] text-zinc-200 font-mono">
+                <span>s</span>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-1">
+            <button class="btn-jump-tp p-1 text-zinc-400 hover:text-amber-400" title="Jump to point">
+              <i class="ph ph-arrow-circle-right text-base"></i>
+            </button>
+            ${points.length > 1 ? `
+              <button class="btn-del-tp p-1 text-zinc-400 hover:text-red-400" title="Delete Point">
+                <i class="ph ph-trash text-base"></i>
+              </button>
+            ` : ''}
+          </div>
+        `;
+
+        item.querySelector('.tp-bpm-input').addEventListener('change', (e) => {
+          tp.bpm = Math.max(30, Math.min(350, parseFloat(e.target.value) || 120));
+          updateEngine();
+        });
+
+        item.querySelector('.tp-meter-select').addEventListener('change', (e) => {
+          tp.beatsPerBar = parseInt(e.target.value, 10) || 4;
+          updateEngine();
+        });
+
+        item.querySelector('.tp-offset-input').addEventListener('change', (e) => {
+          tp.offset = Math.max(0, parseFloat(e.target.value) || 0);
+          updateEngine();
+        });
+
+        item.querySelector('.btn-jump-tp').addEventListener('click', () => {
+          seekToTime(tp.offset);
+        });
+
+        const delBtn = item.querySelector('.btn-del-tp');
+        if (delBtn) {
+          delBtn.addEventListener('click', () => {
+            State.timingPoints = State.timingPoints.filter(p => p.id !== tp.id);
+            updateEngine();
+          });
+        }
+
+        list.appendChild(item);
+      });
+    }
+
+    function addTimingPoint(offset, bpm, beatsPerBar = 4) {
+      const newId = Date.now();
+      State.timingPoints.push({
+        id: newId,
+        offset: Math.max(0, parseFloat(offset) || 0),
+        bpm: Math.max(30, Math.min(350, parseFloat(bpm) || 120)),
+        beatsPerBar: beatsPerBar
+      });
+      updateEngine();
+    }
+
+    /* =========================================================================
+       4. HIGH PERFORMANCE CANVAS RENDERING (CHORDS, LEADS, SWEEPER & TICKS)
+       ========================================================================= */
+    const canvas = document.getElementById('stage-canvas');
+    const ctx = canvas.getContext('2d');
+
+    function resizeCanvas() {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.floor(rect.width * dpr);
+      canvas.height = Math.floor(rect.height * dpr);
+      ctx.resetTransform();
+      ctx.scale(dpr, dpr);
+    }
+    window.addEventListener('resize', resizeCanvas);
+
+    /* Token parser for freeform line with spaces and dots */
+    function parseSpacedLine(text) {
+      if (!text || !text.trim()) return [];
+      
+      const tokens = text.trim().split(/\s+/);
+      const totalTokens = Math.max(tokens.length, 1);
+      const items = [];
+
+      tokens.forEach((raw, index) => {
+        const token = raw.trim();
+        if (!token || token === '.' || token === '-' || token === '_') return;
+
+        const relPos = totalTokens === 1 ? 0 : (index / totalTokens);
+
+        items.push({
+          text: token,
+          relPos: relPos,
+          originalToken: token
+        });
+      });
+
+      return items;
+    }
+
+    let lastActiveBar = -1;
+    let lastActiveBeat = -1;
+    let lastScrubSecond = -1;
+
+    function drawVisualizer() {
+      const rect = canvas.getBoundingClientRect();
+      const W = rect.width;
+      const H = rect.height;
+
+      // 1. UPDATE TIME FROM AUDIO HARDWARE CLOCK
+      if (State.isPlaying) {
+        State.currentTime = getAudioClockTime();
+
+        // Loop / End Detection
+        if (State.currentTime >= State.totalDuration) {
+          if (State.loopBar) {
+            seekToBar(State.loopTargetBar);
+          } else {
+            stopPlayback();
+          }
+        }
+      }
+
+      const metrics = getTimingMetricsAt(State.currentTime);
+      const beats = metrics.activePoint.beatsPerBar || 4;
+      const progress = metrics.barProgress;
+      State.currentGlobalBar = metrics.globalBarIndex;
+      State.currentBeat = metrics.currentBeatInBar;
+
+      // Loop single bar boundary check
+      if (State.isPlaying && State.loopBar && metrics.globalBarIndex !== State.loopTargetBar) {
+        seekToBar(State.loopTargetBar);
+      }
+
+      // 2. CLEAR FRAME
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, W, H);
+
+      const isTwoBar = State.settings.layoutMode === 'two_bar';
+
+      // Dimensions & Positioning
+      const boundaryW = 6;
+      const boundaryH = H * 0.72;
+      const boundaryY = H * 0.12;
+      const tickY = H - 28;
+      const tickHeight = 22;
+      const tickWidth = 6;
+      const chordRowY = H * 0.32;
+      const leadRowY = H * 0.68;
+
+      // Active bar data
+      const currentBar = metrics.globalBarIndex;
+      const upcomingAlert = checkUpcomingChange(currentBar);
+      const hasUpcomingChange = upcomingAlert && upcomingAlert.length > 0;
+
+      if (isTwoBar) {
+        /* =========================================================================
+           MODE A: TWO-BAR ALTERNATING (PING-PONG) STAGE
+           - Bar 1 plays on Left (Deck A), Right (Deck B) displays Bar 2
+           - Bar 2 plays on Right (Deck B), Left (Deck A) updates to Bar 3
+           - Bar 3 plays on Left (Deck A), Right (Deck B) updates to Bar 4
+           - Sweeper continues left-to-right through Deck A, then across Deck B, and alternates!
+           ========================================================================= */
+        const leftBoundaryX = W * 0.08;
+        const midBoundaryX = W * 0.50;
+        const rightBoundaryX = W * 0.92;
+
+        const deckAWidth = midBoundaryX - leftBoundaryX;
+        const deckBWidth = rightBoundaryX - midBoundaryX;
+
+        // Is the current bar on Deck A (odd numbers: 1, 3, 5...) or Deck B (even numbers: 2, 4, 6...)?
+        const isCurrentOnDeckA = (currentBar % 2 === 1);
+
+        const barNumDeckA = isCurrentOnDeckA ? currentBar : currentBar + 1;
+        const barNumDeckB = isCurrentOnDeckA ? currentBar + 1 : currentBar;
+
+        const barDataA = (barNumDeckA <= State.song.totalMeasures) ? (State.measures[barNumDeckA - 1] || { chordLine: "", leadLine: "" }) : { chordLine: "", leadLine: "" };
+        const barDataB = (barNumDeckB <= State.song.totalMeasures) ? (State.measures[barNumDeckB - 1] || { chordLine: "", leadLine: "" }) : { chordLine: "", leadLine: "" };
+
+        const chordsA = parseSpacedLine(barDataA.chordLine || "");
+        const leadsA = parseSpacedLine(barDataA.leadLine || "");
+
+        const chordsB = parseSpacedLine(barDataB.chordLine || "");
+        const leadsB = parseSpacedLine(barDataB.leadLine || "");
+
+        const beatsA = (getMetricsForBar(barNumDeckA).activePoint.beatsPerBar) || beats;
+        const beatsB = (getMetricsForBar(barNumDeckB).activePoint.beatsPerBar) || beats;
+
+        const beatWidthA = deckAWidth / beatsA;
+        const beatWidthB = deckBWidth / beatsB;
+
+        // Clamped progress ensuring the sweeper travels all the way to 100% of the active deck
+        const safeProgress = Math.min(Math.max(progress, 0), 1.0);
+
+        // Position of playhead depending on which deck is active
+        const playheadX = isCurrentOnDeckA 
+          ? (leftBoundaryX + (deckAWidth * safeProgress))
+          : (midBoundaryX + (deckBWidth * safeProgress));
+
+        // 1. Draw Deck A Header (Bar Indicator)
+        ctx.font = '700 12px "JetBrains Mono", monospace';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        if (isCurrentOnDeckA) {
+          ctx.fillStyle = '#facc15';
+          ctx.fillText(`▶ BAR ${barNumDeckA}`, leftBoundaryX + 8, H * 0.08);
+        } else {
+          ctx.fillStyle = '#71717a';
+          ctx.fillText(`NEXT: BAR ${barNumDeckA}`, leftBoundaryX + 8, H * 0.08);
+        }
+
+        // 2. Draw Deck B Header (Bar Indicator)
+        if (!isCurrentOnDeckA) {
+          ctx.fillStyle = '#facc15';
+          ctx.fillText(`▶ BAR ${barNumDeckB}`, midBoundaryX + 16, H * 0.08);
+        } else {
+          ctx.fillStyle = '#71717a';
+          ctx.fillText(`NEXT: BAR ${barNumDeckB}`, midBoundaryX + 16, H * 0.08);
+        }
+
+        // 3. Draw Deck A Chords & Leads (Left Side)
+        ctx.save();
+        if (!isCurrentOnDeckA) ctx.globalAlpha = State.settings.previewOpacity;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        const deckInnerPad = 22; // Safe internal padding away from boundary lines
+
+        chordsA.forEach(item => {
+          // Proportionate position inside safe deck boundary
+          const availableWidthA = deckAWidth - (deckInnerPad * 2);
+          let itemX = leftBoundaryX + deckInnerPad + (item.relPos * availableWidthA);
+          
+          ctx.font = '700 28px "JetBrains Mono", monospace';
+          const textHalfW = (ctx.measureText(item.text).width / 2) + 4;
+          // Clamp strictly inside Deck A boundary lines
+          itemX = Math.max(leftBoundaryX + textHalfW + 6, Math.min(midBoundaryX - textHalfW - 6, itemX));
+
+          const isNearHit = isCurrentOnDeckA && Math.abs(playheadX - itemX) < (deckAWidth * 0.045);
+
+          if (isNearHit) {
+            ctx.font = '800 32px "JetBrains Mono", monospace';
+            ctx.fillStyle = '#fde047';
+            ctx.shadowColor = '#fde047';
+            ctx.shadowBlur = 18;
+            ctx.fillText(item.text, itemX, chordRowY);
+            ctx.shadowBlur = 0;
+          } else {
+            ctx.fillStyle = isCurrentOnDeckA ? '#ffffff' : '#fef08a';
+            ctx.fillText(item.text, itemX, chordRowY);
+          }
+        });
+
+        leadsA.forEach(item => {
+          const availableWidthA = deckAWidth - (deckInnerPad * 2);
+          let itemX = leftBoundaryX + deckInnerPad + (item.relPos * availableWidthA);
+
+          ctx.font = '700 28px "JetBrains Mono", monospace';
+          const textHalfW = (ctx.measureText(item.text).width / 2) + 4;
+          itemX = Math.max(leftBoundaryX + textHalfW + 6, Math.min(midBoundaryX - textHalfW - 6, itemX));
+
+          const isNearHit = isCurrentOnDeckA && Math.abs(playheadX - itemX) < (deckAWidth * 0.045);
+
+          if (isNearHit) {
+            ctx.font = '800 32px "JetBrains Mono", monospace';
+            ctx.fillStyle = '#38bdf8';
+            ctx.shadowColor = '#38bdf8';
+            ctx.shadowBlur = 18;
+            ctx.fillText(item.text, itemX, leadRowY);
+            ctx.shadowBlur = 0;
+          } else {
+            ctx.fillStyle = isCurrentOnDeckA ? '#cbd5e1' : '#7dd3fc';
+            ctx.fillText(item.text, itemX, leadRowY);
+          }
+        });
+
+        // Deck A Beat Ticks with Subdivisions (Aligned with beats)
+        for (let b = 0; b < beatsA; b++) {
+          const beatX = leftBoundaryX + (b * beatWidthA);
+          
+          // Main beat tick (shifted to true beat coordinate)
+          ctx.fillStyle = isCurrentOnDeckA ? '#ffffff' : '#52525b';
+          ctx.fillRect(beatX - tickWidth / 2, tickY, tickWidth, tickHeight);
+
+          // Sub-division tick (smaller, lighter bar at 8th note / half-beat)
+          const subX = beatX + (beatWidthA * 0.5);
+          ctx.fillStyle = isCurrentOnDeckA ? 'rgba(255, 255, 255, 0.35)' : 'rgba(82, 82, 91, 0.4)';
+          ctx.fillRect(subX - (tickWidth * 0.5) / 2, tickY + tickHeight * 0.35, tickWidth * 0.5, tickHeight * 0.65);
+        }
+        ctx.restore();
+
+        // 4. Draw Deck B Chords & Leads (Right Side)
+        ctx.save();
+        if (isCurrentOnDeckA) ctx.globalAlpha = State.settings.previewOpacity;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        chordsB.forEach(item => {
+          const availableWidthB = deckBWidth - (deckInnerPad * 2);
+          let itemX = midBoundaryX + deckInnerPad + (item.relPos * availableWidthB);
+
+          ctx.font = '700 28px "JetBrains Mono", monospace';
+          const textHalfW = (ctx.measureText(item.text).width / 2) + 4;
+          // Clamp strictly inside Deck B boundary lines
+          itemX = Math.max(midBoundaryX + textHalfW + 6, Math.min(rightBoundaryX - textHalfW - 6, itemX));
+
+          const isNearHit = !isCurrentOnDeckA && Math.abs(playheadX - itemX) < (deckBWidth * 0.045);
+
+          if (isNearHit) {
+            ctx.font = '800 32px "JetBrains Mono", monospace';
+            ctx.fillStyle = '#fde047';
+            ctx.shadowColor = '#fde047';
+            ctx.shadowBlur = 18;
+            ctx.fillText(item.text, itemX, chordRowY);
+            ctx.shadowBlur = 0;
+          } else {
+            ctx.fillStyle = !isCurrentOnDeckA ? '#ffffff' : '#fef08a';
+            ctx.fillText(item.text, itemX, chordRowY);
+          }
+        });
+
+        leadsB.forEach(item => {
+          const availableWidthB = deckBWidth - (deckInnerPad * 2);
+          let itemX = midBoundaryX + deckInnerPad + (item.relPos * availableWidthB);
+
+          ctx.font = '700 28px "JetBrains Mono", monospace';
+          const textHalfW = (ctx.measureText(item.text).width / 2) + 4;
+          itemX = Math.max(midBoundaryX + textHalfW + 6, Math.min(rightBoundaryX - textHalfW - 6, itemX));
+
+          const isNearHit = !isCurrentOnDeckA && Math.abs(playheadX - itemX) < (deckBWidth * 0.045);
+
+          if (isNearHit) {
+            ctx.font = '800 32px "JetBrains Mono", monospace';
+            ctx.fillStyle = '#38bdf8';
+            ctx.shadowColor = '#38bdf8';
+            ctx.shadowBlur = 18;
+            ctx.fillText(item.text, itemX, leadRowY);
+            ctx.shadowBlur = 0;
+          } else {
+            ctx.fillStyle = !isCurrentOnDeckA ? '#cbd5e1' : '#7dd3fc';
+            ctx.fillText(item.text, itemX, leadRowY);
+          }
+        });
+
+        // Deck B Beat Ticks with Subdivisions
+        for (let b = 0; b < beatsB; b++) {
+          const beatX = midBoundaryX + (b * beatWidthB);
+
+          // Main beat tick
+          ctx.fillStyle = !isCurrentOnDeckA ? '#ffffff' : '#52525b';
+          ctx.fillRect(beatX - tickWidth / 2, tickY, tickWidth, tickHeight);
+
+          // Sub-division tick (smaller, lighter bar at half-beat)
+          const subX = beatX + (beatWidthB * 0.5);
+          ctx.fillStyle = !isCurrentOnDeckA ? 'rgba(255, 255, 255, 0.35)' : 'rgba(82, 82, 91, 0.4)';
+          ctx.fillRect(subX - (tickWidth * 0.5) / 2, tickY + tickHeight * 0.35, tickWidth * 0.5, tickHeight * 0.65);
+        }
+        ctx.restore();
+
+        // 5. Draw Boundary Bars
+        ctx.fillStyle = '#ffffff';
+        // Left boundary
+        ctx.fillRect(leftBoundaryX - boundaryW, boundaryY, boundaryW, boundaryH * 0.44);
+        ctx.fillRect(leftBoundaryX - boundaryW, boundaryY + boundaryH * 0.56, boundaryW, boundaryH * 0.44);
+
+        // Middle Divider
+        if (hasUpcomingChange) {
+          ctx.fillStyle = '#facc15';
+          ctx.shadowColor = '#facc15';
+          ctx.shadowBlur = 12;
+        } else {
+          ctx.fillStyle = '#52525b';
+          ctx.shadowBlur = 0;
+        }
+        ctx.fillRect(midBoundaryX - boundaryW / 2, boundaryY, boundaryW, boundaryH * 0.44);
+        ctx.fillRect(midBoundaryX - boundaryW / 2, boundaryY + boundaryH * 0.56, boundaryW, boundaryH * 0.44);
+        ctx.shadowBlur = 0;
+
+        // Right Boundary
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(rightBoundaryX, boundaryY, boundaryW, boundaryH * 0.44);
+        ctx.fillRect(rightBoundaryX, boundaryY + boundaryH * 0.56, boundaryW, boundaryH * 0.44);
+
+        // 6. Sweeping Playhead Needle (sweeps smoothly across active deck)
+        const barWidth = 10;
+        const barHeight = H * 0.84;
+        const barY = H * 0.06;
+        ctx.shadowColor = '#fef08a';
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = '#fef08a';
+        ctx.fillRect(playheadX - barWidth / 2, barY, barWidth, barHeight);
+
+        // Small downbeat pointer arrow at top of playhead
+        ctx.beginPath();
+        ctx.moveTo(playheadX - 6, barY);
+        ctx.lineTo(playheadX + 6, barY);
+        ctx.lineTo(playheadX, barY + 8);
+        ctx.closePath();
+        ctx.fillStyle = '#fef08a';
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+      } else {
+        /* =========================================================================
+           MODE B: SINGLE-BAR CLASSIC (WITH BEAT 4 PRE-SHIFT GHOSTING)
+           ========================================================================= */
+        const leftBoundaryX = W * 0.15;
+        const rightBoundaryX = W * 0.85;
+        const barPlayWidth = rightBoundaryX - leftBoundaryX;
+        const beatWidth = barPlayWidth / beats;
+        const playheadX = leftBoundaryX + (barPlayWidth * progress);
+
+        // Active bar data
+        const barIdx = currentBar - 1;
+        const barData = State.measures[barIdx] || { chordLine: "", leadLine: "" };
+        const parsedChords = parseSpacedLine(barData.chordLine || "");
+        const parsedLeads = parseSpacedLine(barData.leadLine || "");
+
+        // Next bar data for Beat 4 look-ahead ghosting
+        const nextBarData = (currentBar < State.song.totalMeasures) 
+          ? (State.measures[currentBar] || { chordLine: "", leadLine: "" })
+          : { chordLine: "", leadLine: "" };
+        const nextChords = parseSpacedLine(nextBarData.chordLine || "");
+        const nextLeads = parseSpacedLine(nextBarData.leadLine || "");
+
+        const singleInnerPad = 26;
+        const availableSingleWidth = barPlayWidth - (singleInnerPad * 2);
+
+        // 1. Draw In-Bar Chords
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        parsedChords.forEach(item => {
+          let itemX = leftBoundaryX + singleInnerPad + (item.relPos * availableSingleWidth);
+          ctx.font = '700 30px "JetBrains Mono", monospace';
+          const textHalfW = (ctx.measureText(item.text).width / 2) + 4;
+          itemX = Math.max(leftBoundaryX + textHalfW + 8, Math.min(rightBoundaryX - textHalfW - 8, itemX));
+
+          const isNearHit = Math.abs(playheadX - itemX) < (barPlayWidth * 0.045);
+
+          if (isNearHit) {
+            ctx.font = '800 36px "JetBrains Mono", monospace';
+            ctx.fillStyle = '#fde047';
+            ctx.shadowColor = '#fde047';
+            ctx.shadowBlur = 18;
+            ctx.fillText(item.text, itemX, chordRowY);
+            ctx.shadowBlur = 0;
+          } else {
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(item.text, itemX, chordRowY);
+          }
+        });
+
+        // 2. Draw In-Bar Leads
+        parsedLeads.forEach(item => {
+          let itemX = leftBoundaryX + singleInnerPad + (item.relPos * availableSingleWidth);
+          ctx.font = '700 30px "JetBrains Mono", monospace';
+          const textHalfW = (ctx.measureText(item.text).width / 2) + 4;
+          itemX = Math.max(leftBoundaryX + textHalfW + 8, Math.min(rightBoundaryX - textHalfW - 8, itemX));
+
+          const isNearHit = Math.abs(playheadX - itemX) < (barPlayWidth * 0.045);
+
+          if (isNearHit) {
+            ctx.font = '800 36px "JetBrains Mono", monospace';
+            ctx.fillStyle = '#38bdf8';
+            ctx.shadowColor = '#38bdf8';
+            ctx.shadowBlur = 18;
+            ctx.fillText(item.text, itemX, leadRowY);
+            ctx.shadowBlur = 0;
+          } else {
+            ctx.fillStyle = '#cbd5e1';
+            ctx.fillText(item.text, itemX, leadRowY);
+          }
+        });
+
+        // 3. Beat 4 Look-Ahead Pre-Shift Ghosting
+        // When progress >= 0.75 (Beat 4 in 4/4), ghost upcoming chords at the left edge
+        if (State.settings.beat4Ghosting && progress >= 0.72 && nextChords.length > 0) {
+          const ghostAlpha = Math.min(0.65, (progress - 0.72) / 0.28 * 0.65);
+          ctx.save();
+          ctx.globalAlpha = ghostAlpha;
+
+          // Upcoming chord ghosted near downbeat left edge
+          nextChords.forEach(item => {
+            const itemX = leftBoundaryX + (item.relPos * barPlayWidth) + (beatWidth * 0.35);
+            ctx.font = '700 28px "JetBrains Mono", monospace';
+            ctx.fillStyle = '#fef08a';
+            ctx.fillText(item.text, itemX, chordRowY);
+          });
+
+          // Upcoming lead ghosted near downbeat left edge
+          nextLeads.forEach(item => {
+            const itemX = leftBoundaryX + (item.relPos * barPlayWidth) + (beatWidth * 0.35);
+            ctx.font = '700 28px "JetBrains Mono", monospace';
+            ctx.fillStyle = '#7dd3fc';
+            ctx.fillText(item.text, itemX, leadRowY);
+          });
+
+          // Small indicator pill
+          ctx.font = '800 10px "JetBrains Mono", monospace';
+          ctx.fillStyle = '#fde047';
+          ctx.fillText(`NEXT BAR: ${nextChords.map(c => c.text).join(' ')}`, leftBoundaryX + 80, H * 0.12);
+          ctx.restore();
+        }
+
+        // 4. Beat Ticks with Subdivisions (Mode B)
+        for (let b = 0; b < beats; b++) {
+          const beatX = leftBoundaryX + (b * beatWidth);
+
+          // Main Beat Tick
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(beatX - tickWidth / 2, tickY, tickWidth, tickHeight);
+
+          // Smaller, lighter subdivision bar in between
+          const subX = beatX + (beatWidth * 0.5);
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+          ctx.fillRect(subX - (tickWidth * 0.5) / 2, tickY + tickHeight * 0.35, tickWidth * 0.5, tickHeight * 0.65);
+        }
+
+        // 5. Boundary Lines
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(leftBoundaryX - boundaryW, boundaryY, boundaryW, boundaryH * 0.44);
+        ctx.fillRect(leftBoundaryX - boundaryW, boundaryY + boundaryH * 0.56, boundaryW, boundaryH * 0.44);
+
+        if (hasUpcomingChange) {
+          ctx.fillStyle = '#facc15';
+          ctx.shadowColor = '#facc15';
+          ctx.shadowBlur = 12;
+        } else {
+          ctx.fillStyle = '#ffffff';
+          ctx.shadowBlur = 0;
+        }
+        ctx.fillRect(rightBoundaryX, boundaryY, boundaryW, boundaryH * 0.44);
+        ctx.fillRect(rightBoundaryX, boundaryY + boundaryH * 0.56, boundaryW, boundaryH * 0.44);
+        ctx.shadowBlur = 0;
+
+        // 6. Sweeper Needle
+        const barWidth = 10;
+        const barHeight = H * 0.84;
+        const barY = H * 0.06;
+        ctx.shadowColor = '#fef08a';
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = '#fef08a';
+        ctx.fillRect(playheadX - barWidth / 2, barY, barWidth, barHeight);
+        ctx.shadowBlur = 0;
+      }
+
+      // 8. EFFICIENT DOM SYNCHRONIZATION
+      if (metrics.globalBarIndex !== lastActiveBar) {
+        lastActiveBar = metrics.globalBarIndex;
+        updateHeaderDisplay(metrics);
+        renderOverviewTimeline();
+      }
+
+      // Scrubber throttle (10 updates per second)
+      const currentScrubSec = Math.floor(State.currentTime * 10);
+      if (currentScrubSec !== lastScrubSecond) {
+        lastScrubSecond = currentScrubSec;
+        updateScrubberUI();
+      }
+
+      requestAnimationFrame(drawVisualizer);
+    }
+
+    function updateHeaderDisplay(metrics) {
+      const activeTp = metrics.activePoint;
+      document.getElementById('vis-bpm').textContent = Math.round(activeTp.bpm);
+      document.getElementById('vis-timesig').textContent = `${activeTp.beatsPerBar}/4`;
+      document.getElementById('vis-bar-num').textContent = `${metrics.globalBarIndex} / ${State.song.totalMeasures}`;
+      
+      document.getElementById('active-point-bpm').textContent = Math.round(activeTp.bpm);
+      document.getElementById('active-point-offset').textContent = activeTp.offset.toFixed(3) + 's';
+      document.getElementById('active-point-meter').textContent = `${activeTp.beatsPerBar}/4`;
+
+      // Update Section Badge & Song Header (changes dynamically if in Medley Mode)
+      const sec = getSectionAtBar(metrics.globalBarIndex);
+      const secBadge = document.getElementById('vis-section-badge');
+      if (secBadge && sec) {
+        secBadge.textContent = sec.name.toUpperCase();
+        secBadge.style.backgroundColor = sec.color || '#facc15';
+        secBadge.style.boxShadow = `0 0 12px ${sec.color}44`;
+      }
+
+      const titleEl = document.getElementById('vis-title');
+      const keyEl = document.getElementById('vis-key');
+      if (sec.currentSongTitle && State.isMedleyMode) {
+        titleEl.textContent = sec.currentSongTitle.toUpperCase();
+        keyEl.textContent = sec.currentSongKey || State.song.key;
+      } else {
+        titleEl.textContent = State.song.title.toUpperCase();
+        keyEl.textContent = State.song.key;
+      }
+    }
+
+    /* =========================================================================
+       5. PLAYBACK CONTROL (HARDWARE SYNCHRONIZED)
+       ========================================================================= */
+    function startPlayback() {
+      const ctx = getAudioContext();
+      scheduledBeats.clear();
+      
+      State.isPlaying = true;
+      State.audioCtxStartTime = ctx.currentTime;
+      State.songPlaybackOffset = State.currentTime;
+
+      document.getElementById('btn-play-text').textContent = "PAUSE";
+      document.getElementById('btn-play-icon').className = "ph-fill ph-pause text-base";
+      document.getElementById('btn-play').classList.replace('bg-amber-400', 'bg-amber-500');
+      
+      if (State.audioBuffer) {
+        try {
+          if (State.audioSource) {
+            State.audioSource.stop();
+            State.audioSource.disconnect();
+          }
+        } catch (e) {}
+
+        const source = ctx.createBufferSource();
+        const gainNode = ctx.createGain();
+        gainNode.gain.setValueAtTime(State.musicVolume, ctx.currentTime);
+
+        source.buffer = State.audioBuffer;
+        source.connect(gainNode);
+        gainNode.connect(ctx.destination);
+
+        source.start(0, Math.max(0, State.currentTime));
+        State.audioSource = source;
+        State.audioGainNode = gainNode;
+      }
+
+      scheduleMetronome();
+    }
+
+    function pausePlayback() {
+      State.isPlaying = false;
+      clearTimeout(schedulerTimerId);
+
+      if (State.audioSource) {
+        try {
+          State.audioSource.stop();
+          State.audioSource.disconnect();
+        } catch (e) {}
+        State.audioSource = null;
+        State.audioGainNode = null;
+      }
+
+      document.getElementById('btn-play-text').textContent = "PLAY";
+      document.getElementById('btn-play-icon').className = "ph-fill ph-play text-base";
+      document.getElementById('btn-play').classList.replace('bg-amber-500', 'bg-amber-400');
+    }
+
+    function stopPlayback() {
+      pausePlayback();
+      seekToTime(0);
+    }
+
+    function seekToTime(targetTime) {
+      const clamped = Math.max(0, Math.min(State.totalDuration, targetTime));
+      State.currentTime = clamped;
+      scheduledBeats.clear();
+
+      if (State.isPlaying) {
+        const ctx = getAudioContext();
+        State.audioCtxStartTime = ctx.currentTime;
+        State.songPlaybackOffset = clamped;
+
+        if (State.audioBuffer) {
+          if (State.audioSource) {
+            try {
+              State.audioSource.stop();
+              State.audioSource.disconnect();
+            } catch (e) {}
+          }
+          const source = ctx.createBufferSource();
+          const gainNode = ctx.createGain();
+          gainNode.gain.setValueAtTime(State.musicVolume, ctx.currentTime);
+
+          source.buffer = State.audioBuffer;
+          source.connect(gainNode);
+          gainNode.connect(ctx.destination);
+
+          source.start(0, clamped);
+          State.audioSource = source;
+          State.audioGainNode = gainNode;
+        }
+      }
+
+      updateScrubberUI();
+      const metrics = getTimingMetricsAt(State.currentTime);
+      updateHeaderDisplay(metrics);
+      renderOverviewTimeline();
+    }
+
+    function seekToBar(targetBar) {
+      const targetTime = getTimeForBarStart(targetBar);
+      seekToTime(Math.max(0, targetTime + 0.001));
+    }
+
+    function updateEngine() {
+      recalculateTotalDuration();
+      renderTimingPoints();
+      renderSectionsList();
+      renderMeasuresEditor();
+      renderOverviewTimeline();
+      renderTimelineMarkers();
+    }
+
+    /* Helper: Calculate exact song timestamp (in seconds) where a given bar begins */
+    function getTimeForBarStart(targetBar) {
+      if (targetBar <= 1) {
+        const points = getSortedTimingPoints();
+        return points.length ? points[0].offset : 0;
+      }
+
+      const points = getSortedTimingPoints();
+      if (!points.length) return 0;
+
+      // Calculate bar spans using exact osu! measure logic
+      let accumulatedBars = 0;
+      for (let i = 0; i < points.length; i++) {
+        const cur = points[i];
+        const next = points[i + 1];
+        const beatsPerBar = cur.beatsPerBar || 4;
+        const spBar = (60 / cur.bpm) * beatsPerBar;
+
+        if (next) {
+          const sectionDuration = Math.max(0, next.offset - cur.offset);
+          const wholeBarsInSection = sectionDuration / spBar;
+          
+          if (targetBar <= accumulatedBars + wholeBarsInSection + 1) {
+            const barsIntoSection = targetBar - (accumulatedBars + 1);
+            return Math.max(0, cur.offset + (barsIntoSection * spBar));
+          } else {
+            accumulatedBars += wholeBarsInSection;
+          }
+        } else {
+          // Last timing point runs indefinitely
+          const barsIntoSection = targetBar - (accumulatedBars + 1);
+          return Math.max(0, cur.offset + (barsIntoSection * spBar));
+        }
+      }
+
+      return 0;
+    }
+
+    /* Helper: Time string formatters */
+    function formatTime(seconds) {
+      const mins = Math.floor(seconds / 60);
+      const secs = Math.floor(seconds % 60);
+      return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+
+    function formatTimePrecise(seconds) {
+      const mins = Math.floor(seconds / 60);
+      const secs = (seconds % 60).toFixed(2);
+      return `${String(mins).padStart(2, '0')}:${secs.padStart(5, '0')}`;
+    }
+
+    function updateScrubberBounds() {
+      const scrub = document.getElementById('timeline-scrubber');
+      if (scrub) scrub.max = State.totalDuration;
+      const totalEl = document.getElementById('scrub-total');
+      if (totalEl) totalEl.textContent = formatTime(State.totalDuration);
+    }
+
+    function updateScrubberUI() {
+      const scrub = document.getElementById('timeline-scrubber');
+      if (scrub) scrub.value = State.currentTime;
+      const curEl = document.getElementById('scrub-current');
+      if (curEl) curEl.textContent = formatTime(State.currentTime);
+      const timeDisp = document.getElementById('timeline-time-display');
+      if (timeDisp) timeDisp.textContent = `${formatTimePrecise(State.currentTime)} / ${formatTimePrecise(State.totalDuration)}`;
+      const ratio = State.totalDuration > 0 ? (State.currentTime / State.totalDuration) : 0;
+      const needle = document.getElementById('timeline-needle');
+      if (needle) {
+        needle.style.left = `${(ratio * 100).toFixed(2)}%`;
+      }
+    }
+
+    /* =========================================================================
+       5B. TIMELINE SCRUBBER SECTION & SONG MARKERS
+       ========================================================================= */
+    function renderTimelineMarkers() {
+      const container = document.getElementById('timeline-markers-track');
+      if (!container) return;
+      container.innerHTML = '';
+
+      if (State.totalDuration <= 0) return;
+
+      const sorted = [...State.sections].sort((a, b) => a.startBar - b.startBar);
+      if (!sorted.length) return;
+
+      // Group sections into proportional segments spanning across the totalDuration
+      sorted.forEach((sec, idx) => {
+        const nextSec = sorted[idx + 1];
+        const barStartTime = getTimeForBarStart(sec.startBar);
+        const barEndTime = nextSec ? getTimeForBarStart(nextSec.startBar) : State.totalDuration;
+        
+        const startRatio = Math.min(1, Math.max(0, barStartTime / State.totalDuration));
+        const endRatio = Math.min(1, Math.max(0, barEndTime / State.totalDuration));
+        const spanPct = Math.max(0.5, (endRatio - startRatio) * 100);
+
+        const seg = document.createElement('div');
+        seg.className = "h-full relative flex items-center justify-center border-r border-black/40 overflow-hidden select-none transition-opacity hover:opacity-90";
+        seg.style.width = `${spanPct}%`;
+        seg.style.backgroundColor = sec.color || '#facc15';
+
+        // Only render label if the segment is wide enough to avoid cramping
+        if (spanPct > 5.5) {
+          const isNewSong = sec.isNewSong && State.isMedleyMode;
+          seg.innerHTML = `
+            <span class="text-[9px] font-mono font-black text-black/90 uppercase tracking-tighter truncate px-1 pointer-events-none drop-shadow-sm">
+              ${isNewSong ? '★ ' : ''}${sec.name}
+            </span>
+          `;
+        }
+
+        seg.title = `${sec.name} (Bar ${sec.startBar}–${nextSec ? nextSec.startBar - 1 : State.song.totalMeasures} @ ${formatTime(barStartTime)})`;
+
+        seg.addEventListener('click', (e) => {
+          e.stopPropagation();
+          seekToBar(sec.startBar);
+        });
+
+        container.appendChild(seg);
+      });
+    }
+
+    /* Setup interactive tooltip for the segmented timeline rail */
+    function setupTimelineTooltip() {
+      const wrapper = document.getElementById('timeline-interactive-wrapper');
+      const tooltip = document.getElementById('timeline-hover-tooltip');
+      const tooltipText = document.getElementById('tooltip-text');
+      const scrubber = document.getElementById('timeline-scrubber');
+
+      if (!wrapper || !tooltip || !tooltipText) return;
+
+      const updateTooltipPosition = (e) => {
+        const rect = wrapper.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const offsetX = Math.max(0, Math.min(rect.width, clientX - rect.left));
+        const ratio = rect.width > 0 ? (offsetX / rect.width) : 0;
+        const hoverTime = ratio * State.totalDuration;
+
+        const metrics = getTimingMetricsAt(hoverTime);
+        const sec = getSectionAtBar(metrics.globalBarIndex);
+
+        tooltip.style.left = `${offsetX}px`;
+        tooltipText.textContent = `${sec.name.toUpperCase()} • Bar ${metrics.globalBarIndex} (${formatTimePrecise(hoverTime)})`;
+        tooltip.classList.remove('hidden');
+      };
+
+      wrapper.addEventListener('mousemove', updateTooltipPosition);
+      wrapper.addEventListener('mouseenter', () => tooltip.classList.remove('hidden'));
+      wrapper.addEventListener('mouseleave', () => tooltip.classList.add('hidden'));
+
+      if (scrubber) {
+        scrubber.addEventListener('input', () => {
+          const ratio = State.totalDuration > 0 ? (State.currentTime / State.totalDuration) : 0;
+          const needle = document.getElementById('timeline-needle');
+          if (needle) {
+            needle.style.left = `${(ratio * 100).toFixed(2)}%`;
+          }
+        });
+      }
+    }
+
+    /* =========================================================================
+       6. 4-BAR ROLLING OVERVIEW STRUCTURE TIMELINE
+       ========================================================================= */
+    function renderOverviewTimeline() {
+      const container = document.getElementById('overview-bar-container');
+      container.innerHTML = '';
+
+      const currentBar = State.currentGlobalBar || 1;
+
+      for (let i = 0; i < 4; i++) {
+        const targetBar = currentBar + i;
+        const targetIdx = targetBar - 1;
+        const barCard = document.createElement('div');
+        
+        if (targetBar <= State.song.totalMeasures) {
+          const isCurrent = (i === 0);
+          const isNextBar = (i === 1);
+          
+          // Check for transitions happening at targetBar (relative to targetBar - 1)
+          const barAlerts = targetBar > 1 ? checkUpcomingChange(targetBar - 1) : null;
+          const hasBarAlert = barAlerts && barAlerts.length > 0;
+          
+          const barData = State.measures[targetIdx];
+          
+          // Clean chord display
+          const rawChords = barData ? (barData.chordLine || '') : '';
+          const chordText = rawChords.replace(/[.\-_]/g, ' ').replace(/\s+/g, ' ').trim() || '—';
+
+          // Clean lead display
+          const rawLeads = barData ? (barData.leadLine || '') : '';
+          const leadText = rawLeads.replace(/[.\-_]/g, ' ').replace(/\s+/g, ' ').trim() || '—';
+          
+          // Section check for this bar
+          const sec = getSectionAtBar(targetBar);
+          const matchedSection = State.sections.find(s => s.startBar === targetBar);
+          const isSectionStart = !!matchedSection;
+          const isNewSongStart = isSectionStart && matchedSection.isNewSong && State.isMedleyMode;
+
+          barCard.className = `h-full rounded-lg border p-1.5 flex flex-col justify-between cursor-pointer transition select-none font-mono ${
+            isCurrent
+              ? 'bg-amber-400/20 border-amber-400 text-amber-300 ring-2 ring-amber-400/50 shadow-lg'
+              : (isNextBar && hasBarAlert)
+              ? 'bg-amber-950/40 border-2 border-amber-400 text-white ring-2 ring-amber-400/40 shadow-lg animate-pulse'
+              : hasBarAlert
+              ? 'bg-zinc-900 border border-amber-400/60 text-zinc-200'
+              : 'bg-zinc-900/60 border-zinc-800 text-zinc-300 hover:border-zinc-700'
+          }`;
+
+          barCard.innerHTML = `
+            <div class="flex items-center justify-between text-[10px]">
+              <span class="font-bold uppercase ${isCurrent ? 'text-amber-300' : (isNextBar && hasBarAlert) ? 'text-amber-400 font-extrabold' : hasBarAlert ? 'text-amber-300' : 'text-zinc-400'}">
+                ${isCurrent ? '▶ BAR ' + targetBar : hasBarAlert ? '⚡ BAR ' + targetBar : 'BAR ' + targetBar}
+              </span>
+              ${hasBarAlert ? `
+                <span class="px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider ${isNextBar ? 'bg-amber-400 text-black border border-amber-300 shadow' : 'bg-amber-400/20 text-amber-300 border border-amber-400/40'} truncate max-w-[110px]">
+                  ⚡ ${barAlerts.map(a => a.short).join(' ')}
+                </span>
+              ` : isNewSongStart ? `
+                <span class="px-1 py-0.2 rounded text-[8px] font-black uppercase tracking-wider bg-amber-400 text-black truncate max-w-[90px] border border-amber-300 shadow">
+                  ★ ${sec.name}
+                </span>
+              ` : isSectionStart ? `
+                <span class="px-1 py-0.2 rounded text-[8px] font-black uppercase tracking-wider text-black truncate max-w-[70px]" style="background-color: ${sec.color};">
+                  ${sec.name}
+                </span>
+              ` : `
+                <span class="text-[9px] font-medium text-zinc-500 uppercase truncate max-w-[60px]">
+                  ${sec.name}
+                </span>
+              `}
+            </div>
+            <div class="truncate text-xs md:text-sm font-extrabold ${isCurrent ? 'text-white' : (isNextBar && hasBarAlert) ? 'text-amber-200' : 'text-zinc-200'}">
+              ${chordText}
+            </div>
+            <div class="truncate text-[10px] font-semibold ${isCurrent ? 'text-sky-300' : (isNextBar && hasBarAlert) ? 'text-sky-300' : 'text-zinc-400'}">
+              ${leadText}
+            </div>
+          `;
+
+          barCard.addEventListener('click', () => {
+            seekToBar(targetBar);
+            State.loopTargetBar = targetBar;
+          });
+        } else {
+          barCard.className = "h-full rounded-lg border border-zinc-900 bg-zinc-950/40 p-1.5 flex flex-col justify-center items-center text-zinc-700 font-mono text-xs select-none";
+          barCard.innerHTML = `<span>END</span>`;
+        }
+
+        container.appendChild(barCard);
+      }
+    }
+
+    /* =========================================================================
+       6B. SECTIONS MANAGER & MULTI-SONG MEDLEY SUPPORT
+       ========================================================================= */
+    function renderSectionsList() {
+      const container = document.getElementById('sections-list-container');
+      if (!container) return;
+      container.innerHTML = '';
+
+      const sorted = [...State.sections].sort((a, b) => a.startBar - b.startBar);
+
+      sorted.forEach((sec) => {
+        const isSelected = (State.selectedSectionId === sec.id);
+        const item = document.createElement('div');
+        item.className = `bg-zinc-950 border ${
+          isSelected 
+            ? 'border-amber-400 ring-2 ring-amber-400/50 bg-amber-950/20 shadow-md' 
+            : sec.isNewSong && State.isMedleyMode 
+            ? 'border-amber-400/60 ring-1 ring-amber-400/30' 
+            : 'border-zinc-800'
+        } rounded p-2.5 flex flex-col text-xs gap-2 transition-all cursor-pointer`;
+        
+        item.innerHTML = `
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2 flex-1 flex-wrap">
+              <!-- Selection Radio Target -->
+              <input type="radio" name="selected_section_radio" class="sec-select-radio accent-amber-400 cursor-pointer" ${isSelected ? 'checked' : ''} title="Select this section for quick rename">
+              <input type="color" value="${sec.color || '#facc15'}" class="sec-color-input w-5 h-5 rounded cursor-pointer bg-transparent border-0 p-0">
+              <input type="text" value="${sec.name}" class="sec-name-input bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 text-xs text-white font-mono font-bold w-24 uppercase">
+              
+              <div class="flex items-center gap-1 text-[10px] font-mono text-zinc-400">
+                <span>Bar:</span>
+                <input type="number" min="1" max="${State.song.totalMeasures}" value="${sec.startBar}" class="sec-bar-input w-11 bg-zinc-900 border border-zinc-700 rounded px-1 py-0.5 text-[10px] text-zinc-200 font-mono text-center">
+              </div>
+
+              <!-- Key Signature per Section -->
+              <div class="flex items-center gap-1 text-[10px] font-mono text-amber-400" title="Key signature for this section">
+                <span>Key:</span>
+                <input type="text" value="${sec.songKey || State.song.key}" class="sec-key-direct-input w-10 bg-zinc-900 border border-amber-400/40 rounded px-1 py-0.5 text-[10px] text-amber-300 font-mono font-bold text-center uppercase">
+              </div>
+            </div>
+            
+            <div class="flex items-center gap-1">
+              <button class="btn-jump-sec p-1 text-zinc-400 hover:text-amber-400" title="Jump to section">
+                <i class="ph ph-arrow-circle-right text-base"></i>
+              </button>
+              <button class="btn-del-sec p-1 text-zinc-400 hover:text-red-400" title="Delete Section">
+                <i class="ph ph-trash text-base"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- New Song Toggle & Metadata Fields -->
+          <div class="pt-1.5 border-t border-zinc-900 flex flex-col gap-1.5">
+            <label class="flex items-center gap-2 cursor-pointer select-none">
+              <input type="checkbox" class="sec-newsong-chk accent-amber-400 w-3.5 h-3.5 rounded" ${sec.isNewSong ? 'checked' : ''}>
+              <span class="text-[11px] font-bold ${sec.isNewSong ? 'text-amber-300' : 'text-zinc-400'} flex items-center gap-1">
+                <i class="ph-bold ph-music-notes"></i> Set as New Song in Medley
+              </span>
+            </label>
+
+            ${sec.isNewSong ? `
+              <div class="grid grid-cols-3 gap-1.5 pl-5 pt-0.5">
+                <div class="col-span-3">
+                  <span class="text-[9px] font-mono text-zinc-500 uppercase block">Song Title</span>
+                  <input type="text" value="${sec.songTitle || sec.name}" class="sec-songtitle-input w-full bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 text-[11px] text-white font-mono uppercase">
+                </div>
+              </div>
+            ` : ''}
+          </div>
+        `;
+
+        // Select on click anywhere on card
+        item.addEventListener('click', (e) => {
+          if (e.target.closest('input') || e.target.closest('button')) return;
+          State.selectedSectionId = sec.id;
+          updateSelectedSectionUI();
+          renderSectionsList();
+          renderMeasuresEditor();
+        });
+
+        item.querySelector('.sec-select-radio').addEventListener('change', () => {
+          State.selectedSectionId = sec.id;
+          updateSelectedSectionUI();
+          renderSectionsList();
+          renderMeasuresEditor();
+        });
+
+        item.querySelector('.sec-color-input').addEventListener('input', (e) => {
+          sec.color = e.target.value;
+          updateEngine();
+        });
+
+        item.querySelector('.sec-name-input').addEventListener('focus', () => {
+          State.selectedSectionId = sec.id;
+          updateSelectedSectionUI();
+        });
+
+        item.querySelector('.sec-name-input').addEventListener('change', (e) => {
+          sec.name = e.target.value.trim() || 'Section';
+          if (sec.isNewSong && !sec.songTitle) sec.songTitle = sec.name;
+          updateSelectedSectionUI();
+          updateEngine();
+        });
+
+        item.querySelector('.sec-bar-input').addEventListener('change', (e) => {
+          sec.startBar = Math.max(1, Math.min(State.song.totalMeasures, parseInt(e.target.value, 10) || 1));
+          updateEngine();
+        });
+
+        // Direct key update for this section
+        item.querySelector('.sec-key-direct-input').addEventListener('change', (e) => {
+          sec.songKey = e.target.value.trim().toUpperCase() || State.song.key;
+          updateEngine();
+        });
+
+        item.querySelector('.sec-newsong-chk').addEventListener('change', (e) => {
+          sec.isNewSong = e.target.checked;
+          if (sec.isNewSong && !sec.songTitle) {
+            sec.songTitle = `${sec.name.toUpperCase()} - NEW SONG`;
+            if (!sec.songKey) sec.songKey = State.song.key;
+          }
+          if (sec.isNewSong && !State.isMedleyMode) {
+            State.isMedleyMode = true;
+            const medChk = document.getElementById('toggle-medley-mode');
+            if (medChk) medChk.checked = true;
+          }
+          renderSectionsList();
+          updateEngine();
+        });
+
+        const titleIn = item.querySelector('.sec-songtitle-input');
+        if (titleIn) {
+          titleIn.addEventListener('change', (e) => {
+            sec.songTitle = e.target.value.trim().toUpperCase() || 'UNTITLED';
+            updateEngine();
+          });
+        }
+
+        item.querySelector('.btn-jump-sec').addEventListener('click', (e) => {
+          e.stopPropagation();
+          seekToBar(sec.startBar);
+        });
+
+        item.querySelector('.btn-del-sec').addEventListener('click', (e) => {
+          e.stopPropagation();
+          State.sections = State.sections.filter(s => s.id !== sec.id);
+          if (State.selectedSectionId === sec.id && State.sections.length > 0) {
+            State.selectedSectionId = State.sections[0].id;
+          }
+          updateEngine();
+        });
+
+        container.appendChild(item);
+      });
+
+      updateSelectedSectionUI();
+    }
+
+    /* =========================================================================
+       8. MEASURE & CHORDS EDITOR (HIERARCHICAL SONG & SECTION DECK)
+       ========================================================================= */
+    let measureClipboard = null;
+
+    function renderMeasuresEditor() {
+      const list = document.getElementById('measures-editor-list');
+      if (!list) return;
+      list.innerHTML = '';
+
+      while (State.measures.length < State.song.totalMeasures) {
+        State.measures.push({
+          bar: State.measures.length + 1,
+          chordLine: "D . . .",
+          leadLine: ". . . ."
+        });
+      }
+
+      const sortedSections = [...State.sections].sort((a, b) => a.startBar - b.startBar);
+      if (!sortedSections.length || sortedSections[0].startBar > 1) {
+        const defaultPalette = getSongPalette(0);
+        sortedSections.unshift({ id: 'default_intro', startBar: 1, name: 'Intro', color: defaultPalette.intro });
+      }
+
+      const sectionBlocks = [];
+      for (let s = 0; s < sortedSections.length; s++) {
+        const curSec = sortedSections[s];
+        const nextSec = sortedSections[s + 1];
+        const start = curSec.startBar;
+        const end = nextSec ? Math.min(State.song.totalMeasures, nextSec.startBar - 1) : State.song.totalMeasures;
+        
+        if (start <= State.song.totalMeasures && start <= end) {
+          sectionBlocks.push({
+            section: curSec,
+            startBar: start,
+            endBar: end
+          });
+        }
+      }
+
+      // Group sections into Songs
+      const songs = [];
+      let currentSongGroup = null;
+
+      sectionBlocks.forEach((block, idx) => {
+        const sec = block.section;
+        if (idx === 0 || (sec.isNewSong && State.isMedleyMode)) {
+          currentSongGroup = {
+            id: `song_${sec.id || idx}`,
+            sourceSection: sec,
+            title: sec.songTitle || (idx === 0 ? State.song.title : `${sec.name.toUpperCase()} - NEW SONG`),
+            key: sec.songKey || State.song.key,
+            startBar: block.startBar,
+            endBar: block.endBar,
+            sections: [block]
+          };
+          songs.push(currentSongGroup);
+        } else {
+          if (!currentSongGroup) {
+            currentSongGroup = {
+              id: `song_0`,
+              sourceSection: sec,
+              title: State.song.title,
+              key: State.song.key,
+              startBar: block.startBar,
+              endBar: block.endBar,
+              sections: []
+            };
+            songs.push(currentSongGroup);
+          }
+          currentSongGroup.sections.push(block);
+          currentSongGroup.endBar = block.endBar;
+        }
+      });
+
+      // Render Song Cards and Sections
+      songs.forEach((song, songIdx) => {
+        const isSongCollapsed = State.collapsedSongs.has(song.id);
+        const songCard = document.createElement('div');
+        songCard.className = "flex flex-col border border-zinc-700/80 bg-zinc-950 rounded-xl overflow-hidden shadow-lg mb-2";
+
+        const songHeader = document.createElement('div');
+        songHeader.className = "flex items-center justify-between px-3 py-2 bg-gradient-to-r from-zinc-900 via-zinc-850 to-zinc-900 border-b border-zinc-800 select-none font-mono text-xs gap-2";
+        songHeader.innerHTML = `
+          <div class="flex items-center gap-2 flex-1 min-w-0">
+            <button class="btn-toggle-song-collapse text-zinc-400 hover:text-white p-0.5">
+              <i class="ph-bold ${isSongCollapsed ? 'ph-caret-right' : 'ph-caret-down'} text-amber-400 text-sm"></i>
+            </button>
+            <span class="w-2.5 h-2.5 rounded bg-amber-400 shadow-sm shadow-amber-400/50 flex-shrink-0"></span>
+            <input type="text" value="${song.title}" class="song-card-title-in bg-zinc-900/90 border border-zinc-700 rounded px-1.5 py-0.5 text-xs text-white font-mono font-bold uppercase truncate flex-1 min-w-[120px]" title="Edit song title">
+            <div class="flex items-center gap-1 text-[10px] text-zinc-400 flex-shrink-0">
+              <span class="font-bold text-amber-300">KEY:</span>
+              <input type="text" value="${song.key}" class="song-card-key-in w-10 bg-zinc-900 border border-zinc-700 rounded px-1 py-0.5 text-center text-xs text-amber-300 font-mono font-bold uppercase">
+            </div>
+          </div>
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <span class="text-[10px] text-zinc-400 font-bold">Bars ${song.startBar}–${song.endBar}</span>
+            <button class="btn-jump-song text-zinc-400 hover:text-amber-400 px-1" title="Jump to Song start">
+              <i class="ph-bold ph-arrow-circle-right text-base"></i>
+            </button>
+          </div>
+        `;
+
+        songHeader.querySelector('.btn-toggle-song-collapse').addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (State.collapsedSongs.has(song.id)) {
+            State.collapsedSongs.delete(song.id);
+          } else {
+            State.collapsedSongs.add(song.id);
+          }
+          renderMeasuresEditor();
+        });
+
+        songHeader.querySelector('.btn-jump-song').addEventListener('click', (e) => {
+          e.stopPropagation();
+          seekToBar(song.startBar);
+        });
+
+        const songTitleInput = songHeader.querySelector('.song-card-title-in');
+        songTitleInput.addEventListener('change', (e) => {
+          const newTitle = e.target.value.trim().toUpperCase() || 'UNTITLED';
+          if (songIdx === 0 && !State.isMedleyMode) {
+            State.song.title = newTitle;
+            document.getElementById('edit-song-title').value = newTitle;
+          }
+          if (song.sourceSection) {
+            song.sourceSection.songTitle = newTitle;
+          }
+          updateEngine();
+        });
+
+        const songKeyInput = songHeader.querySelector('.song-card-key-in');
+        songKeyInput.addEventListener('change', (e) => {
+          const newKey = e.target.value.trim().toUpperCase() || 'D';
+          if (songIdx === 0 && !State.isMedleyMode) {
+            State.song.key = newKey;
+            document.getElementById('edit-song-key').value = newKey;
+          }
+          if (song.sourceSection) {
+            song.sourceSection.songKey = newKey;
+          }
+          updateEngine();
+        });
+
+        songCard.appendChild(songHeader);
+
+        const songBody = document.createElement('div');
+        songBody.className = `p-2 flex flex-col gap-2 ${isSongCollapsed ? 'hidden' : ''}`;
+
+        song.sections.forEach((group) => {
+          const sec = group.section;
+          const isSecCollapsed = State.collapsedSections.has(sec.id);
+          const isSelected = (State.selectedSectionId === sec.id);
+
+          const secWrapper = document.createElement('div');
+          secWrapper.className = `flex flex-col border rounded-lg p-2 transition-all ${
+            isSelected ? 'border-amber-400/80 ring-1 ring-amber-400/40 bg-zinc-900/60' : 'border-zinc-800/90 bg-zinc-900/40'
+          }`;
+
+          const secHeader = document.createElement('div');
+          secHeader.className = "flex items-center justify-between px-2 py-1 rounded select-none bg-zinc-900 hover:bg-zinc-850 transition text-xs font-mono mb-1 gap-2";
+
+          let allSecBarsSelected = true;
+          for (let b = group.startBar; b <= group.endBar; b++) {
+            if (!State.selectedBars.has(b)) {
+              allSecBarsSelected = false;
+              break;
+            }
+          }
+
+          secHeader.innerHTML = `
+            <div class="flex items-center gap-2 cursor-pointer min-w-0 flex-1">
+              <input type="checkbox" class="sec-select-all-chk accent-amber-400 w-3.5 h-3.5 cursor-pointer rounded flex-shrink-0" ${allSecBarsSelected ? 'checked' : ''} title="Select all bars in ${sec.name}">
+              <i class="ph-bold ${isSecCollapsed ? 'ph-caret-right' : 'ph-caret-down'} text-zinc-400 text-xs flex-shrink-0"></i>
+              <span class="w-2 h-2 rounded-full flex-shrink-0" style="background-color: ${sec.color || '#facc15'};"></span>
+              <input type="text" value="${sec.name}" class="sec-inline-name-in bg-transparent border-0 border-b border-transparent focus:border-amber-400 text-zinc-200 font-bold uppercase text-[11px] w-24 px-0.5 focus:outline-none" title="Edit section name">
+            </div>
+            <div class="flex items-center gap-1.5 flex-shrink-0">
+              <span class="text-[9px] text-zinc-500 font-bold">Bars ${group.startBar}–${group.endBar}</span>
+              <button class="btn-copy-whole-sec px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-amber-400 hover:text-black text-amber-300 text-[9px] font-bold border border-amber-400/30 flex items-center gap-1 transition" title="Copy entire ${sec.name} to clipboard">
+                <i class="ph-bold ph-copy"></i> Copy Sec
+              </button>
+              <button class="btn-paste-whole-sec px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-green-400 hover:text-black text-green-300 text-[9px] font-bold border border-green-400/30 flex items-center gap-1 transition" title="Paste clipboard starting at Bar ${group.startBar}">
+                <i class="ph-bold ph-clipboard"></i> Paste Sec
+              </button>
+              <button class="btn-jump-sec-sub text-[10px] text-zinc-400 hover:text-amber-400 px-1 py-0.5" title="Jump to section">
+                <i class="ph-bold ph-arrow-circle-right text-sm"></i>
+              </button>
+            </div>
+          `;
+
+          secHeader.querySelector('.sec-select-all-chk').addEventListener('click', (e) => {
+            e.stopPropagation();
+            const shouldSelect = e.target.checked;
+            for (let b = group.startBar; b <= group.endBar; b++) {
+              if (shouldSelect) State.selectedBars.add(b);
+              else State.selectedBars.delete(b);
+            }
+            updateSelectionUI();
+            renderMeasuresEditor();
+          });
+
+          const nameIn = secHeader.querySelector('.sec-inline-name-in');
+          nameIn.addEventListener('focus', () => {
+            State.selectedSectionId = sec.id;
+            updateSelectedSectionUI();
+          });
+          nameIn.addEventListener('change', (e) => {
+            sec.name = e.target.value.trim() || 'Section';
+            updateSelectedSectionUI();
+            updateEngine();
+          });
+
+          secHeader.querySelector('.btn-copy-whole-sec').addEventListener('click', (e) => {
+            e.stopPropagation();
+            copySectionBars(group.startBar, group.endBar, sec.name);
+          });
+
+          secHeader.querySelector('.btn-paste-whole-sec').addEventListener('click', (e) => {
+            e.stopPropagation();
+            pasteIntoSection(group.startBar, sec.name);
+          });
+
+          secHeader.querySelector('.btn-jump-sec-sub').addEventListener('click', (e) => {
+            e.stopPropagation();
+            seekToBar(group.startBar);
+          });
+
+          secHeader.addEventListener('click', (e) => {
+            if (e.target.closest('input') || e.target.closest('button')) return;
+            State.selectedSectionId = sec.id;
+            updateSelectedSectionUI();
+            if (State.collapsedSections.has(sec.id)) {
+              State.collapsedSections.delete(sec.id);
+            } else {
+              State.collapsedSections.add(sec.id);
+            }
+            renderMeasuresEditor();
+          });
+
+          secWrapper.appendChild(secHeader);
+
+          // Measures Container inside this section
+          const measuresContainer = document.createElement('div');
+          measuresContainer.className = `flex flex-col gap-1.5 ${isSecCollapsed ? 'hidden' : ''}`;
+
+          for (let b = group.startBar; b <= group.endBar; b++) {
+            const idx = b - 1;
+            const m = State.measures[idx];
+            if (!m) continue;
+
+            const barNumber = b;
+            const isSelectedBar = State.selectedBars.has(barNumber);
+
+            const row = document.createElement('div');
+            row.className = `border rounded p-1.5 text-xs flex flex-col gap-1 transition-colors ${
+              isSelectedBar 
+                ? 'bg-amber-950/30 border-amber-400/60 ring-1 ring-amber-400/30' 
+                : 'bg-zinc-950/80 border-zinc-850'
+            }`;
+
+            row.innerHTML = `
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <input type="checkbox" class="bar-select-chk accent-amber-400 w-3.5 h-3.5 cursor-pointer rounded" ${isSelectedBar ? 'checked' : ''} data-bar="${barNumber}">
+                  <span class="font-mono font-bold ${isSelectedBar ? 'text-amber-300' : 'text-zinc-300'} text-[11px]">Bar ${barNumber}</span>
+                </div>
+                <div class="flex items-center gap-1">
+                  <button class="btn-copy-bar text-[9px] text-zinc-400 hover:text-amber-300 px-1.5 py-0.5 bg-zinc-900 border border-zinc-800 rounded flex items-center gap-1" title="Copy this bar">
+                    <i class="ph ph-copy"></i> Copy
+                  </button>
+                  <button class="btn-paste-bar text-[9px] text-zinc-400 hover:text-green-300 px-1.5 py-0.5 bg-zinc-900 border border-zinc-800 rounded flex items-center gap-1" title="Paste clipboard into this bar">
+                    <i class="ph ph-clipboard"></i> Paste
+                  </button>
+                  <button class="btn-dup-next text-[9px] text-zinc-400 hover:text-sky-300 px-1.5 py-0.5 bg-zinc-900 border border-zinc-800 rounded flex items-center gap-1" title="Duplicate to Bar ${barNumber + 1}">
+                    <i class="ph ph-copy-simple"></i> +Next
+                  </button>
+                  <button class="jump-bar-btn text-[9px] text-zinc-400 hover:text-white px-1 py-0.5 rounded font-mono">Jump</button>
+                </div>
+              </div>
+              
+              <div>
+                <input type="text" value="${m.chordLine || ''}" placeholder="Chords (e.g. D . . C)" class="chord-line-in w-full font-music-input bg-zinc-900 border border-zinc-800 rounded px-2 py-0.5 text-xs text-amber-300 uppercase focus:outline-none focus:border-amber-400">
+              </div>
+
+              <div>
+                <input type="text" value="${m.leadLine || ''}" placeholder="Leads (e.g. D5 . . E5)" class="lead-line-in w-full font-music-input bg-zinc-900 border border-zinc-800 rounded px-2 py-0.5 text-xs text-sky-200 focus:outline-none focus:border-sky-400">
+              </div>
+            `;
+
+            row.querySelector('.bar-select-chk').addEventListener('change', (e) => {
+              if (e.target.checked) State.selectedBars.add(barNumber);
+              else State.selectedBars.delete(barNumber);
+              updateSelectionUI();
+              renderMeasuresEditor();
+            });
+
+            const chordInput = row.querySelector('.chord-line-in');
+            chordInput.addEventListener('input', (e) => {
+              m.chordLine = e.target.value;
+              renderOverviewTimeline();
+            });
+
+            const leadInput = row.querySelector('.lead-line-in');
+            leadInput.addEventListener('input', (e) => {
+              m.leadLine = e.target.value;
+              renderOverviewTimeline();
+            });
+
+            row.querySelector('.jump-bar-btn').addEventListener('click', () => {
+              seekToBar(barNumber);
+            });
+
+            row.querySelector('.btn-copy-bar').addEventListener('click', () => {
+              measureClipboard = { chordLine: m.chordLine || '', leadLine: m.leadLine || '' };
+              State.multiBarClipboard = [measureClipboard];
+              updateClipboardStatusUI(`1 bar (#${barNumber}) copied`);
+              const status = document.getElementById('copy-status-msg');
+              if (status) {
+                status.textContent = `copied bar ${barNumber}`;
+                status.className = "text-amber-400 font-mono text-[10px]";
+              }
+            });
+
+            row.querySelector('.btn-paste-bar').addEventListener('click', () => {
+              if (State.multiBarClipboard && State.multiBarClipboard.length > 0) {
+                const item = State.multiBarClipboard[0];
+                m.chordLine = item.chordLine;
+                m.leadLine = item.leadLine;
+                chordInput.value = m.chordLine;
+                leadInput.value = m.leadLine;
+                renderOverviewTimeline();
+                const status = document.getElementById('copy-status-msg');
+                if (status) {
+                  status.textContent = `pasted to bar ${barNumber}`;
+                  status.className = "text-green-400 font-mono text-[10px]";
+                }
+              }
+            });
+
+            row.querySelector('.btn-dup-next').addEventListener('click', () => {
+              const nextIdx = idx + 1;
+              if (nextIdx < State.measures.length) {
+                State.measures[nextIdx].chordLine = m.chordLine;
+                State.measures[nextIdx].leadLine = m.leadLine;
+                renderMeasuresEditor();
+                renderOverviewTimeline();
+                const status = document.getElementById('copy-status-msg');
+                if (status) {
+                  status.textContent = `duplicated bar ${barNumber} → ${barNumber + 1}`;
+                  status.className = "text-sky-400 font-mono text-[10px]";
+                }
+              }
+            });
+
+            measuresContainer.appendChild(row);
+          }
+
+          secWrapper.appendChild(measuresContainer);
+          songBody.appendChild(secWrapper);
+        });
+
+        songCard.appendChild(songBody);
+        list.appendChild(songCard);
+      });
+
+      updateSelectionUI();
+    }
+
+    /* Helper: Update display pill for currently selected section */
+    function updateSelectedSectionUI() {
+      const pill2 = document.getElementById('active-selected-sec-pill-tab2');
+      const targetSec = State.sections.find(s => s.id === State.selectedSectionId) || State.sections[0];
+      
+      if (!pill2) return;
+      if (targetSec) {
+        pill2.textContent = targetSec.name;
+        pill2.style.color = targetSec.color || '#facc15';
+        pill2.style.borderColor = (targetSec.color || '#facc15') + '66';
+        pill2.style.backgroundColor = (targetSec.color || '#facc15') + '22';
+      } else {
+        pill2.textContent = 'None';
+        pill2.style.color = '#71717a';
+        pill2.style.borderColor = '#3f3f46';
+        pill2.style.backgroundColor = 'transparent';
+      }
+    }
+
+    /* Rename selected section with preset buttons */
+    function setupPresetRenameButtons() {
+      document.querySelectorAll('.btn-preset-rename').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const newName = btn.getAttribute('data-name');
+          if (!newName) return;
+
+          // Find targeted section (or first section if none selected)
+          let targetSec = State.sections.find(s => s.id === State.selectedSectionId);
+          if (!targetSec && State.sections.length > 0) {
+            targetSec = State.sections[0];
+            State.selectedSectionId = targetSec.id;
+          }
+
+          if (targetSec) {
+            targetSec.name = newName;
+            
+            // Find its parent song group index to keep colors harmonious with the song
+            const songsBefore = State.sections.filter(s => s.isNewSong && s.startBar <= targetSec.startBar).length;
+            const songPalette = getSongPalette(Math.max(0, songsBefore - 1));
+            targetSec.color = getSectionColorFromPalette(songPalette, newName);
+
+            updateSelectedSectionUI();
+            updateEngine();
+          }
+        });
+      });
+    }
+
+    /* Helper: Update multi-selection counter & toolbar state */
+    function updateSelectionUI() {
+      const count = State.selectedBars.size;
+      const countLbl = document.getElementById('batch-selection-count-lbl');
+      const masterChk = document.getElementById('chk-master-select-all');
+
+      if (countLbl) {
+        countLbl.textContent = `${count} bar${count === 1 ? '' : 's'} selected`;
+        countLbl.className = count > 0 
+          ? "text-[11px] font-mono font-bold text-amber-300" 
+          : "text-[11px] font-mono font-normal text-zinc-400";
+      }
+
+      if (masterChk) {
+        masterChk.checked = (count > 0 && count === State.song.totalMeasures);
+        masterChk.indeterminate = (count > 0 && count < State.song.totalMeasures);
+      }
+    }
+
+    /* Helper: Update clipboard message pill */
+    function updateClipboardStatusUI(text) {
+      const el = document.getElementById('batch-clipboard-status');
+      if (el) {
+        el.textContent = text;
+        el.className = "text-amber-400 text-[10px] ml-auto truncate max-w-[130px] font-bold";
+      }
+    }
+
+    /* Copy entire section utility */
+    function copySectionBars(startBar, endBar, sectionName) {
+      const copied = [];
+      for (let b = startBar; b <= endBar; b++) {
+        const m = State.measures[b - 1];
+        if (m) {
+          copied.push({
+            chordLine: m.chordLine || '',
+            leadLine: m.leadLine || ''
+          });
+        }
+      }
+
+      if (copied.length > 0) {
+        State.multiBarClipboard = copied;
+        // Pre-fill paste destination bar to immediately after this section
+        const destInput = document.getElementById('batch-paste-dest-bar');
+        if (destInput) {
+          destInput.value = Math.min(2000, endBar + 1);
+        }
+        updateClipboardStatusUI(`${copied.length} bars (${sectionName})`);
+        const status = document.getElementById('copy-status-msg');
+        if (status) {
+          status.textContent = `copied ${sectionName} (${copied.length} bars)`;
+          status.className = "text-amber-300 font-mono text-[10px] font-bold";
+        }
+      }
+    }
+
+    /* Paste into section utility starting at its downbeat measure */
+    function pasteIntoSection(targetStartBar, sectionName) {
+      if (!State.multiBarClipboard || State.multiBarClipboard.length === 0) {
+        updateClipboardStatusUI("clipboard empty");
+        const status = document.getElementById('copy-status-msg');
+        if (status) {
+          status.textContent = "clipboard empty - copy bars first";
+          status.className = "text-red-400 font-mono text-[10px] font-bold";
+        }
+        return;
+      }
+
+      const count = State.multiBarClipboard.length;
+      const neededTotal = targetStartBar + count - 1;
+      if (neededTotal > State.song.totalMeasures) {
+        State.song.totalMeasures = Math.min(2000, neededTotal);
+        document.getElementById('edit-total-measures').value = State.song.totalMeasures;
+      }
+
+      while (State.measures.length < State.song.totalMeasures) {
+        State.measures.push({
+          bar: State.measures.length + 1,
+          chordLine: "A . . .",
+          leadLine: ". . . ."
+        });
+      }
+
+      State.multiBarClipboard.forEach((item, idx) => {
+        const targetIdx = (targetStartBar - 1) + idx;
+        if (targetIdx < State.measures.length) {
+          State.measures[targetIdx].chordLine = item.chordLine;
+          State.measures[targetIdx].leadLine = item.leadLine;
+        }
+      });
+
+      updateClipboardStatusUI(`pasted ${count} bars in ${sectionName}`);
+      const status = document.getElementById('copy-status-msg');
+      if (status) {
+        status.textContent = `pasted ${count} bars into ${sectionName} (starting Bar ${targetStartBar})`;
+        status.className = "text-green-400 font-mono text-[10px] font-bold";
+      }
+
+      updateEngine();
+    }
+
+    function addSection(name, startBar, color = null, isNewSong = false, songTitle = "", songKey = "") {
+      // Determine song index to inherit its cohesive palette
+      const barNum = Math.max(1, Math.min(State.song.totalMeasures, parseInt(startBar, 10) || 1));
+      const songsSoFar = State.sections.filter(s => s.isNewSong && s.startBar <= barNum).length;
+      const palette = getSongPalette(songsSoFar);
+      const chosenColor = color || getSectionColorFromPalette(palette, name || 'Section');
+
+      State.sections.push({
+        id: Date.now() + Math.random(),
+        startBar: barNum,
+        name: name || 'Section',
+        color: chosenColor,
+        isNewSong: isNewSong,
+        songTitle: songTitle || (isNewSong ? `${name.toUpperCase()} - NEW SONG` : ""),
+        songKey: songKey || State.song.key
+      });
+      updateEngine();
+    }
+
+    function loadSampleMedley() {
+      State.isMedleyMode = true;
+      document.getElementById('toggle-medley-mode').checked = true;
+      State.song.totalMeasures = 20;
+      document.getElementById('edit-total-measures').value = 20;
+
+      State.timingPoints = [
+        { id: 1, offset: 0.00, bpm: 130, beatsPerBar: 4 },
+        { id: 2, offset: 14.76, bpm: 142, beatsPerBar: 4 },
+        { id: 3, offset: 28.28, bpm: 125, beatsPerBar: 4 }
+      ];
+
+      // Cohesive palette per song in medley:
+      // Song 1 (Overture): Amber Palette
+      // Song 2 (Who You Say I Am): Crimson/Rose Palette
+      // Song 3 (Way Maker): Emerald Palette
+      const p1 = getSongPalette(0); // Amber
+      const p2 = getSongPalette(3); // Crimson
+      const p3 = getSongPalette(2); // Emerald
+
+      State.sections = [
+        { id: 1, startBar: 1, name: "Intro", color: p1.intro, isNewSong: true, songTitle: "OVERTURE - JIL WORSHIP", songKey: "A" },
+        { id: 2, startBar: 5, name: "Verse 1", color: p1.verse, isNewSong: false },
+        { id: 3, startBar: 9, name: "Chorus", color: p2.chorus, isNewSong: true, songTitle: "WHO YOU SAY I AM", songKey: "G#" },
+        { id: 4, startBar: 13, name: "Bridge", color: p2.bridge, isNewSong: false },
+        { id: 5, startBar: 17, name: "Refrain", color: p3.chorus, isNewSong: true, songTitle: "WAY MAKER", songKey: "E" }
+      ];
+
+      seekToBar(1);
+      updateEngine();
+    }
+
+    // Master Select / Deselect All Measures Checkbox
+    document.getElementById('chk-master-select-all').addEventListener('change', (e) => {
+      if (e.target.checked) {
+        for (let b = 1; b <= State.song.totalMeasures; b++) {
+          State.selectedBars.add(b);
+        }
+      } else {
+        State.selectedBars.clear();
+      }
+      updateSelectionUI();
+      renderMeasuresEditor();
+    });
+
+    // Clear Selection Button
+    document.getElementById('btn-batch-clear-selection').addEventListener('click', () => {
+      State.selectedBars.clear();
+      updateSelectionUI();
+      renderMeasuresEditor();
+    });
+
+    // Copy Selected Bars into Multi-Bar Clipboard
+    document.getElementById('btn-batch-copy-selected').addEventListener('click', () => {
+      const selectedList = Array.from(State.selectedBars).sort((a, b) => a - b);
+      if (selectedList.length === 0) {
+        updateClipboardStatusUI("none selected");
+        return;
+      }
+
+      const copied = [];
+      selectedList.forEach(barNum => {
+        const m = State.measures[barNum - 1];
+        if (m) {
+          copied.push({
+            chordLine: m.chordLine || '',
+            leadLine: m.leadLine || ''
+          });
+        }
+      });
+
+      State.multiBarClipboard = copied;
+      // Pre-fill paste destination bar to next bar after the highest selected bar
+      const highestSelected = selectedList[selectedList.length - 1];
+      const destInput = document.getElementById('batch-paste-dest-bar');
+      if (destInput) {
+        destInput.value = Math.min(2000, highestSelected + 1);
+      }
+
+      updateClipboardStatusUI(`${copied.length} bars copied`);
+      const status = document.getElementById('copy-status-msg');
+      if (status) {
+        status.textContent = `copied ${copied.length} selected bars`;
+        status.className = "text-amber-400 font-mono text-[10px] font-bold";
+      }
+    });
+
+    // Paste Multi-Bar Clipboard at Target Destination Bar
+    document.getElementById('btn-batch-paste-at').addEventListener('click', () => {
+      if (!State.multiBarClipboard || State.multiBarClipboard.length === 0) {
+        updateClipboardStatusUI("clipboard empty");
+        return;
+      }
+
+      const destBar = parseInt(document.getElementById('batch-paste-dest-bar').value, 10) || 1;
+      const count = State.multiBarClipboard.length;
+
+      // Expand totalMeasures if needed
+      const neededTotal = destBar + count - 1;
+      if (neededTotal > State.song.totalMeasures) {
+        State.song.totalMeasures = Math.min(2000, neededTotal);
+        document.getElementById('edit-total-measures').value = State.song.totalMeasures;
+      }
+
+      while (State.measures.length < State.song.totalMeasures) {
+        State.measures.push({
+          bar: State.measures.length + 1,
+          chordLine: "A . . .",
+          leadLine: ". . . ."
+        });
+      }
+
+      // Apply clipboard bars starting at destBar
+      State.multiBarClipboard.forEach((item, idx) => {
+        const targetIdx = (destBar - 1) + idx;
+        if (targetIdx < State.measures.length) {
+          State.measures[targetIdx].chordLine = item.chordLine;
+          State.measures[targetIdx].leadLine = item.leadLine;
+        }
+      });
+
+      updateClipboardStatusUI(`pasted ${count} bars at #${destBar}`);
+      const status = document.getElementById('copy-status-msg');
+      if (status) {
+        status.textContent = `pasted ${count} bars starting at Bar ${destBar}`;
+        status.className = "text-green-400 font-mono text-[10px] font-bold";
+      }
+
+      updateEngine();
+    });
+
+    // Collapse All / Expand All Section Handlers
+    document.getElementById('btn-collapse-all-sections').addEventListener('click', () => {
+      State.sections.forEach(s => State.collapsedSections.add(s.id));
+      State.collapsedSections.add('default_intro');
+      // Also collapse all song headers
+      const songs = document.querySelectorAll('.btn-jump-song');
+      songs.forEach((_, idx) => State.collapsedSongs.add(`song_${idx}`));
+      renderMeasuresEditor();
+    });
+
+    document.getElementById('btn-expand-all-sections').addEventListener('click', () => {
+      State.collapsedSections.clear();
+      State.collapsedSongs.clear();
+      renderMeasuresEditor();
+    });
+
+    // Batch Range Copy & Paste Handler
+    document.getElementById('btn-copy-range').addEventListener('click', () => {
+      const fromBar = parseInt(document.getElementById('copy-from-bar').value, 10) || 1;
+      const toBar = parseInt(document.getElementById('copy-to-bar').value, 10) || fromBar;
+      const pasteStart = parseInt(document.getElementById('paste-start-bar').value, 10) || 1;
+
+      const start = Math.min(fromBar, toBar);
+      const end = Math.max(fromBar, toBar);
+
+      // Slice the measures to copy
+      const copied = [];
+      for (let b = start; b <= end; b++) {
+        const m = State.measures[b - 1];
+        if (m) {
+          copied.push({
+            chordLine: m.chordLine || '',
+            leadLine: m.leadLine || ''
+          });
+        }
+      }
+
+      if (!copied.length) return;
+
+      // Expand total measures if paste range exceeds current count
+      const neededMeasures = pasteStart + copied.length - 1;
+      if (neededMeasures > State.song.totalMeasures) {
+        State.song.totalMeasures = Math.min(128, neededMeasures);
+        document.getElementById('edit-total-measures').value = State.song.totalMeasures;
+      }
+
+      // Ensure state array has enough measure objects
+      while (State.measures.length < State.song.totalMeasures) {
+        State.measures.push({
+          bar: State.measures.length + 1,
+          chordLine: "A . . .",
+          leadLine: ". . . ."
+        });
+      }
+
+      // Apply copied items
+      copied.forEach((item, offset) => {
+        const targetIdx = (pasteStart - 1) + offset;
+        if (targetIdx < State.measures.length) {
+          State.measures[targetIdx].chordLine = item.chordLine;
+          State.measures[targetIdx].leadLine = item.leadLine;
+        }
+      });
+
+      const status = document.getElementById('copy-status-msg');
+      if (status) {
+        status.textContent = `copied ${start}–${end} → ${pasteStart}–${pasteStart + copied.length - 1}`;
+        status.className = "text-green-400 font-mono text-[10px] font-bold";
+      }
+
+      updateEngine();
+    });
+
+    /* =========================================================================
+       9. OSU! BEATMAP PARSER (.OSU FILE)
+       ========================================================================= */
+    function parseOsuBeatmap(fileContent) {
+      if (!fileContent || typeof fileContent !== 'string') return null;
+
+      const lines = fileContent.split(/\r?\n/);
+      let currentSection = '';
+      
+      const parsed = {
+        title: '',
+        artist: '',
+        audioFilename: '',
+        creator: '',
+        timingPoints: [],
+        bookmarks: []
+      };
+
+      // 1. Direct Regex scan for Bookmarks across entire file (handles all formatting variations)
+      const bookmarkMatch = fileContent.match(/bookmarks\s*:\s*([^\r\n]+)/i);
+      if (bookmarkMatch && bookmarkMatch[1]) {
+        const rawValues = bookmarkMatch[1].split(/[\s,;]+/);
+        parsed.bookmarks = rawValues
+          .map(s => parseFloat(s.trim()))
+          .filter(n => !isNaN(n) && n >= 0);
+      }
+
+      for (let i = 0; i < lines.length; i++) {
+        let line = lines[i].trim();
+        if (!line || line.startsWith('//')) continue;
+
+        if (line.startsWith('[') && line.endsWith(']')) {
+          currentSection = line.substring(1, line.length - 1);
+          continue;
+        }
+
+        if (currentSection === 'General') {
+          if (line.startsWith('AudioFilename:')) {
+            parsed.audioFilename = line.substring('AudioFilename:'.length).trim();
+          }
+        } else if (currentSection === 'Metadata') {
+          if (line.startsWith('Title:')) {
+            parsed.title = line.substring('Title:'.length).trim();
+          } else if (line.startsWith('TitleUnicode:') && !parsed.title) {
+            parsed.title = line.substring('TitleUnicode:'.length).trim();
+          } else if (line.startsWith('Artist:')) {
+            parsed.artist = line.substring('Artist:'.length).trim();
+          } else if (line.startsWith('ArtistUnicode:') && !parsed.artist) {
+            parsed.artist = line.substring('ArtistUnicode:'.length).trim();
+          } else if (line.startsWith('Creator:')) {
+            parsed.creator = line.substring('Creator:'.length).trim();
+          }
+        } else if (currentSection === 'TimingPoints') {
+          const parts = line.split(',');
+          if (parts.length >= 2) {
+            const timeMs = parseFloat(parts[0]);
+            const beatLength = parseFloat(parts[1]);
+            const meter = parts[2] ? parseInt(parts[2], 10) : 4;
+            let isUninherited = true;
+            if (parts.length > 6) {
+              isUninherited = parts[6].trim() === '1';
+            } else {
+              isUninherited = beatLength > 0;
+            }
+
+            if (isUninherited && beatLength > 0) {
+              const bpm = 60000 / beatLength;
+              const offsetSec = Math.max(0, timeMs / 1000);
+              parsed.timingPoints.push({
+                offset: offsetSec,
+                bpm: Math.round(bpm * 100) / 100,
+                beatsPerBar: meter > 0 ? meter : 4
+              });
+            }
+          }
+        }
+      }
+
+      parsed.timingPoints.sort((a, b) => a.offset - b.offset);
+
+      const uniquePoints = [];
+      for (const pt of parsed.timingPoints) {
+        if (!uniquePoints.length) {
+          uniquePoints.push(pt);
+        } else {
+          const last = uniquePoints[uniquePoints.length - 1];
+          if (Math.abs(last.offset - pt.offset) > 0.005 || Math.abs(last.bpm - pt.bpm) > 0.1) {
+            uniquePoints.push(pt);
+          }
+        }
+      }
+      parsed.timingPoints = uniquePoints;
+
+      return parsed;
+    }
+
+    function applyParsedOsuBeatmap(parsed) {
+      if (!parsed || !parsed.timingPoints.length) return;
+
+      let fullTitle = parsed.title;
+      if (parsed.artist) fullTitle = `${parsed.artist} - ${fullTitle}`;
+      if (fullTitle) {
+        State.song.title = fullTitle.toUpperCase();
+        document.getElementById('vis-title').textContent = State.song.title;
+        document.getElementById('edit-song-title').value = State.song.title;
+      }
+
+      if (parsed.audioFilename) {
+        document.getElementById('audio-filename-lbl').textContent = `Needs: ${parsed.audioFilename.substring(0, 15)}`;
+      }
+
+      // 1. Assign and apply timing points first so time-to-bar math is 100% accurate
+      State.timingPoints = parsed.timingPoints.map((tp, idx) => ({
+        id: idx + 1,
+        offset: tp.offset,
+        bpm: tp.bpm,
+        beatsPerBar: tp.beatsPerBar
+      }));
+
+      // Calculate total duration based on last timing point or bookmarks
+      const sortedPts = getSortedTimingPoints();
+      const lastPoint = sortedPts[sortedPts.length - 1];
+      const maxBookmarkSec = (parsed.bookmarks && parsed.bookmarks.length) 
+        ? Math.max(...parsed.bookmarks) / 1000 
+        : 0;
+      
+      // Calculate how many total measures the beatmap actually requires
+      const points = getSortedTimingPoints();
+      let estMeasures = 16;
+
+      if (maxBookmarkSec > 0 || lastPoint.offset > 0) {
+        const referenceTime = Math.max(lastPoint.offset + 10, maxBookmarkSec + 15);
+        // Step through timing points to find measure count at referenceTime
+        let accumulatedBars = 0;
+        for (let i = 0; i < points.length; i++) {
+          const cur = points[i];
+          const next = points[i + 1];
+          const spBar = (60 / cur.bpm) * (cur.beatsPerBar || 4);
+          if (next && next.offset <= referenceTime) {
+            accumulatedBars += (next.offset - cur.offset) / spBar;
+          } else {
+            accumulatedBars += Math.max(0, referenceTime - cur.offset) / spBar;
+            break;
+          }
+        }
+        estMeasures = Math.ceil(accumulatedBars);
+      }
+
+      State.song.totalMeasures = Math.max(16, Math.min(2000, estMeasures));
+      document.getElementById('edit-total-measures').value = State.song.totalMeasures;
+
+      // 2. Accurately map osu! bookmarks to measure numbers with nearest-downbeat rounding
+      if (parsed.bookmarks && parsed.bookmarks.length > 0) {
+        const defaultPalette = getSongPalette(0);
+        const newSections = [];
+        const sortedBookmarks = [...parsed.bookmarks].sort((a, b) => a - b);
+        let secCounter = 1;
+
+        // Check if any bookmark starts at or near Bar 1 (within the first 2 seconds)
+        const hasStartBookmark = sortedBookmarks.some(bm => (bm / 1000) < 2.0);
+        if (!hasStartBookmark) {
+          newSections.push({
+            id: 1,
+            startBar: 1,
+            name: "Intro",
+            color: defaultPalette.intro,
+            isNewSong: false,
+            songKey: State.song.key
+          });
+        }
+
+        sortedBookmarks.forEach((bmMs) => {
+          const secTime = bmMs / 1000;
+          
+          // Compute exact measure using nearest-downbeat rounding rather than floor
+          const points = getSortedTimingPoints();
+          let activeIndex = 0;
+          for (let i = 0; i < points.length; i++) {
+            if (secTime >= points[i].offset) {
+              activeIndex = i;
+            } else {
+              break;
+            }
+          }
+
+          const activePoint = points[activeIndex];
+          const spBeat = 60 / activePoint.bpm;
+          const beatsPerBar = activePoint.beatsPerBar || 4;
+          const spBar = spBeat * beatsPerBar;
+
+          let accumulatedBars = 0;
+          for (let i = 0; i < activeIndex; i++) {
+            const curP = points[i];
+            const nextP = points[i + 1];
+            const span = Math.max(0, nextP.offset - curP.offset);
+            const curSpBar = (60 / curP.bpm) * (curP.beatsPerBar || 4);
+            accumulatedBars += span / curSpBar;
+          }
+
+          const timeSincePoint = secTime - activePoint.offset;
+          // Nearest bar rounding (snap to closest downbeat)
+          let targetBar = Math.round(accumulatedBars + (timeSincePoint / spBar)) + 1;
+          targetBar = Math.max(1, targetBar);
+
+          // If another section already claimed this exact bar, push to the next bar so no bookmark is discarded
+          while (newSections.some(s => s.startBar === targetBar)) {
+            targetBar++;
+          }
+
+          const defaultName = targetBar === 1 ? "Intro" : `Section ${secCounter}`;
+          newSections.push({
+            id: Date.now() + secCounter,
+            startBar: targetBar,
+            name: defaultName,
+            color: getSectionColorFromPalette(defaultPalette, defaultName),
+            isNewSong: false,
+            songKey: State.song.key
+          });
+          secCounter++;
+        });
+
+        // Ensure total measures accommodates the highest section start bar + padding
+        const maxSectionBar = Math.max(...newSections.map(s => s.startBar));
+        if (maxSectionBar + 8 > State.song.totalMeasures) {
+          State.song.totalMeasures = maxSectionBar + 8;
+          document.getElementById('edit-total-measures').value = State.song.totalMeasures;
+        }
+
+        State.sections = newSections.sort((a, b) => a.startBar - b.startBar);
+      }
+
+      // Re-anchor duration to match the newly calculated total measures
+      recalculateTotalDuration();
+      stopPlayback();
+      updateEngine();
+
+      const bookmarkCount = parsed.bookmarks ? parsed.bookmarks.length : 0;
+      document.getElementById('osu-filename-lbl').textContent = `${State.timingPoints.length} pts, ${State.sections.length} sections!`;
+      setTimeout(() => {
+        document.getElementById('osu-filename-lbl').textContent = "Import .osu";
+      }, 3500);
+    }
+
+    document.getElementById('osu-file-input').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        const text = evt.target.result;
+        const parsed = parseOsuBeatmap(text);
+        if (parsed) {
+          applyParsedOsuBeatmap(parsed);
+        }
+      };
+      reader.readAsText(file);
+    });
+
+    const pasteModal = document.getElementById('paste-osu-modal');
+    document.getElementById('btn-paste-osu-modal').addEventListener('click', () => {
+      pasteModal.classList.remove('hidden');
+    });
+    document.getElementById('btn-close-paste-modal').addEventListener('click', () => {
+      pasteModal.classList.add('hidden');
+    });
+    document.getElementById('btn-cancel-paste').addEventListener('click', () => {
+      pasteModal.classList.add('hidden');
+    });
+    document.getElementById('btn-parse-pasted-osu').addEventListener('click', () => {
+      const text = document.getElementById('paste-osu-textarea').value;
+      const parsed = parseOsuBeatmap(text);
+      if (parsed) {
+        applyParsedOsuBeatmap(parsed);
+        pasteModal.classList.add('hidden');
+      }
+    });
+
+    const sampleOsuContent = `osu file format v14
+[General]
+AudioFilename: in_jesus_name.mp3
+AudioLeadIn: 0
+[Editor]
+Bookmarks: 0, 9142, 27428, 45714
+[Metadata]
+Title:In Jesus' Name
+Artist:Darlene Zschech
+Creator:BeatSync
+[TimingPoints]
+0,571.428571428571,4,1,0,100,1,0
+`;
+    document.getElementById('btn-demo-osu').addEventListener('click', () => {
+      const parsed = parseOsuBeatmap(sampleOsuContent);
+      applyParsedOsuBeatmap(parsed);
+    });
+
+    /* =========================================================================
+       9B. SAVE & LOAD PROJECT STATE (.JSON)
+       ========================================================================= */
+    // Helper: Convert ArrayBuffer to Base64 string for embedding in JSON
+    function arrayBufferToBase64(buffer) {
+      let binary = '';
+      const bytes = new Uint8Array(buffer);
+      const len = bytes.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return window.btoa(binary);
+    }
+
+    // Helper: Convert Base64 string back to ArrayBuffer
+    function base64ToArrayBuffer(base64) {
+      const binaryString = window.atob(base64);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      return bytes.buffer;
+    }
+
+    async function exportProjectJSON() {
+      const btn = document.getElementById('btn-export-project');
+      const originalHtml = btn.innerHTML;
+      btn.innerHTML = `<i class="ph-bold ph-spinner animate-spin text-amber-400"></i> <span class="text-amber-300">Packing Audio...</span>`;
+
+      // Check if we have audio in IndexedDB to bundle
+      let bundledAudio = null;
+      try {
+        const cached = await loadAudioFromDB();
+        if (cached && cached.buffer) {
+          bundledAudio = {
+            name: cached.name || 'track.mp3',
+            type: cached.type || 'audio/mpeg',
+            data: arrayBufferToBase64(cached.buffer)
+          };
+        }
+      } catch (e) {
+        console.warn('Could not pack audio into JSON:', e);
+      }
+
+      const projectData = {
+        version: "1.3",
+        exportedAt: new Date().toISOString(),
+        song: { ...State.song },
+        isMedleyMode: State.isMedleyMode,
+        timingPoints: [...State.timingPoints],
+        sections: [...State.sections],
+        measures: [...State.measures],
+        audio: bundledAudio
+      };
+
+      const jsonStr = JSON.stringify(projectData);
+      const blob = new Blob([jsonStr], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+
+      const safeTitle = (State.song.title || "syncstage_project")
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, '_')
+        .replace(/_+/g, '_');
+
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${safeTitle}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      btn.innerHTML = `<i class="ph-bold ph-check text-green-400"></i> <span class="text-green-400">Saved + Audio!</span>`;
+      setTimeout(() => {
+        btn.innerHTML = originalHtml;
+      }, 2500);
+    }
+
+    function loadProjectJSON(file) {
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async function(evt) {
+        try {
+          const data = JSON.parse(evt.target.result);
+
+          if (data.song) {
+            State.song = { ...State.song, ...data.song };
+            document.getElementById('edit-song-title').value = State.song.title || "UNTITLED";
+            document.getElementById('edit-song-key').value = State.song.key || "A";
+            document.getElementById('edit-total-measures').value = State.song.totalMeasures || 16;
+            document.getElementById('vis-title').textContent = State.song.title || "UNTITLED";
+            document.getElementById('vis-key').textContent = State.song.key || "A";
+          }
+
+          if (typeof data.isMedleyMode === 'boolean') {
+            State.isMedleyMode = data.isMedleyMode;
+            const medToggle = document.getElementById('toggle-medley-mode');
+            if (medToggle) medToggle.checked = State.isMedleyMode;
+          }
+
+          if (Array.isArray(data.timingPoints) && data.timingPoints.length > 0) {
+            State.timingPoints = data.timingPoints;
+          }
+
+          if (Array.isArray(data.sections) && data.sections.length > 0) {
+            State.sections = data.sections;
+          }
+
+          if (Array.isArray(data.measures) && data.measures.length > 0) {
+            State.measures = data.measures;
+          }
+
+          // Unpack bundled audio if present
+          if (data.audio && data.audio.data) {
+            try {
+              const audioBuffer = base64ToArrayBuffer(data.audio.data);
+              const audioName = data.audio.name || 'bundled_audio.mp3';
+
+              // Cache in browser IndexedDB
+              await saveAudioToDB(audioBuffer.slice(0), audioName, data.audio.type);
+
+              const ctx = getAudioContext();
+              ctx.decodeAudioData(audioBuffer, (decoded) => {
+                State.audioBuffer = decoded;
+                State.totalDuration = Math.max(decoded.duration, State.totalDuration);
+                
+                const label = document.getElementById('audio-filename-lbl');
+                const icon = document.getElementById('audio-status-icon');
+                const clearBtn = document.getElementById('btn-clear-audio');
+
+                if (label) label.textContent = `✓ ${audioName.substring(0, 13)}...`;
+                if (icon) icon.className = "ph-bold ph-check-circle text-sm text-green-400";
+                if (clearBtn) clearBtn.classList.remove('hidden');
+
+                updateScrubberBounds();
+                recalculateTotalDuration();
+              });
+            } catch (audioErr) {
+              console.warn("Failed to unpack bundled audio from project:", audioErr);
+            }
+          }
+
+          seekToBar(1);
+          updateEngine();
+
+          // Visual feedback
+          const btn = document.getElementById('btn-export-project');
+          const originalHtml = btn.innerHTML;
+          btn.innerHTML = `<i class="ph-bold ph-check text-sky-400"></i> <span class="text-sky-400">Loaded!</span>`;
+          setTimeout(() => {
+            btn.innerHTML = originalHtml;
+          }, 2000);
+        } catch (err) {
+          console.error("Failed to parse project JSON:", err);
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    document.getElementById('btn-export-project').addEventListener('click', exportProjectJSON);
+    document.getElementById('project-file-input').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        loadProjectJSON(file);
+        e.target.value = ''; // Reset input so same file can be reloaded if needed
+      }
+    });
+
+    /* =========================================================================
+       10. TAP TEMPO UTILITY
+       ========================================================================= */
+    const tapTimes = [];
+    document.getElementById('btn-tap-tempo').addEventListener('click', () => {
+      const now = performance.now();
+      tapTimes.push(now);
+      if (tapTimes.length > 5) tapTimes.shift();
+
+      if (tapTimes.length >= 2) {
+        const diffs = [];
+        for (let i = 1; i < tapTimes.length; i++) {
+          diffs.push(tapTimes[i] - tapTimes[i - 1]);
+        }
+        const avgMs = diffs.reduce((a, b) => a + b, 0) / diffs.length;
+        const calculatedBpm = Math.round(60000 / avgMs);
+
+        const metrics = getTimingMetricsAt(State.currentTime);
+        metrics.activePoint.bpm = calculatedBpm;
+        
+        document.getElementById('btn-tap-tempo').textContent = `${calculatedBpm} BPM!`;
+        setTimeout(() => {
+          document.getElementById('btn-tap-tempo').textContent = "TAP TEMPO";
+        }, 1500);
+
+        updateEngine();
+      }
+    });
+
+    /* =========================================================================
+       11. EVENT LISTENERS & UI WIRING
+       ========================================================================= */
+    document.getElementById('btn-play').addEventListener('click', () => {
+      if (State.isPlaying) pausePlayback();
+      else startPlayback();
+    });
+
+    document.getElementById('btn-stop').addEventListener('click', stopPlayback);
+
+    document.getElementById('timeline-scrubber').addEventListener('input', (e) => {
+      seekToTime(parseFloat(e.target.value));
+    });
+
+    document.getElementById('btn-prev-bar').addEventListener('click', () => {
+      const targetBar = Math.max(1, State.currentGlobalBar - 1);
+      seekToBar(targetBar);
+    });
+
+    document.getElementById('btn-next-bar').addEventListener('click', () => {
+      const targetBar = Math.min(State.song.totalMeasures, State.currentGlobalBar + 1);
+      seekToBar(targetBar);
+    });
+
+    document.getElementById('btn-loop-bar').addEventListener('click', () => {
+      State.loopBar = !State.loopBar;
+      State.loopTargetBar = State.currentGlobalBar;
+      const lbl = document.getElementById('loop-state-text');
+      const btn = document.getElementById('btn-loop-bar');
+      if (State.loopBar) {
+        lbl.textContent = `Loop Bar: #${State.loopTargetBar}`;
+        btn.classList.add('bg-amber-400/20', 'border-amber-400', 'text-amber-300');
+      } else {
+        lbl.textContent = 'Loop Bar: OFF';
+        btn.classList.remove('bg-amber-400/20', 'border-amber-400', 'text-amber-300');
+      }
+    });
+
+    document.getElementById('metronome-toggle').addEventListener('change', (e) => {
+      State.metronomeEnabled = e.target.checked;
+    });
+    document.getElementById('metronome-vol').addEventListener('input', (e) => {
+      State.metronomeVolume = parseFloat(e.target.value);
+    });
+
+    // Music track volume listener
+    document.getElementById('music-vol').addEventListener('input', (e) => {
+      State.musicVolume = parseFloat(e.target.value);
+      if (State.audioGainNode && State.audioCtx) {
+        try {
+          State.audioGainNode.gain.setValueAtTime(State.musicVolume, State.audioCtx.currentTime);
+        } catch (_) {}
+      }
+    });
+
+    document.getElementById('btn-stamp-timing').addEventListener('click', () => {
+      const curMetrics = getTimingMetricsAt(State.currentTime);
+      addTimingPoint(State.currentTime, curMetrics.activePoint.bpm, curMetrics.activePoint.beatsPerBar);
+    });
+
+    document.getElementById('btn-add-timing').addEventListener('click', () => {
+      const offset = State.currentTime.toFixed(3);
+      addTimingPoint(parseFloat(offset) || 0, 130, 4);
+    });
+
+    // 3/4 Time Signature Change Quick Demo
+    document.getElementById('btn-demo-34').addEventListener('click', () => {
+      // Calculate start time of Bar 5 to insert a 3/4 time signature change
+      const spBar4 = (60 / 130) * 4;
+      const bar5Time = spBar4 * 4; // 4 bars of 4/4
+      
+      State.timingPoints = [
+        { id: 1, offset: 0.00, bpm: 130, beatsPerBar: 4 },
+        { id: 2, offset: parseFloat(bar5Time.toFixed(3)), bpm: 130, beatsPerBar: 3 }
+      ];
+
+      State.sections = [
+        { id: 1, startBar: 1, name: "Intro (4/4)", color: "#facc15", isNewSong: false },
+        { id: 2, startBar: 5, name: "Waltz (3/4)", color: "#38bdf8", isNewSong: false }
+      ];
+
+      seekToBar(1);
+      updateEngine();
+    });
+
+    // Sections Controls
+    document.getElementById('btn-add-section').addEventListener('click', () => {
+      addSection("New Section", State.currentGlobalBar);
+    });
+
+    document.getElementById('btn-quick-new-song').addEventListener('click', () => {
+      addSection("Song Intro", State.currentGlobalBar, '#f59e0b', true, "NEW SONG TITLE", "G");
+    });
+
+    document.getElementById('btn-demo-medley').addEventListener('click', loadSampleMedley);
+
+    document.getElementById('toggle-medley-mode').addEventListener('change', (e) => {
+      State.isMedleyMode = e.target.checked;
+      renderSectionsList();
+      renderOverviewTimeline();
+      const metrics = getTimingMetricsAt(State.currentTime);
+      updateHeaderDisplay(metrics);
+    });
+
+    document.querySelectorAll('.btn-quick-sec').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const secName = btn.getAttribute('data-name');
+        addSection(secName, State.currentGlobalBar);
+      });
+    });
+
+    // Tab Switching Handlers
+    function setTabActive(activeTab) {
+      const tabs = ['timing', 'sections', 'chords'];
+      tabs.forEach(t => {
+        const btn = document.getElementById(`tab-${t}-btn`);
+        const panel = document.getElementById(`tab-${t}-panel`);
+        if (t === activeTab) {
+          panel.classList.remove('hidden');
+          btn.className = "flex-1 py-1.5 text-amber-400 border-b-2 border-amber-400 flex items-center justify-center gap-1.5";
+        } else {
+          panel.classList.add('hidden');
+          btn.className = "flex-1 py-1.5 text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent flex items-center justify-center gap-1.5";
+        }
+      });
+    }
+
+    document.getElementById('tab-timing-btn').addEventListener('click', () => setTabActive('timing'));
+    document.getElementById('tab-sections-btn').addEventListener('click', () => setTabActive('sections'));
+    document.getElementById('tab-chords-btn').addEventListener('click', () => setTabActive('chords'));
+
+    document.getElementById('edit-song-title').addEventListener('input', (e) => {
+      State.song.title = e.target.value.toUpperCase();
+      document.getElementById('vis-title').textContent = State.song.title || "UNTITLED";
+    });
+    document.getElementById('edit-song-key').addEventListener('input', (e) => {
+      State.song.key = e.target.value.toUpperCase();
+      document.getElementById('vis-key').textContent = State.song.key || "C";
+    });
+    document.getElementById('edit-total-measures').addEventListener('change', (e) => {
+      const val = parseInt(e.target.value, 10) || 16;
+      State.song.totalMeasures = Math.max(2, Math.min(2000, val));
+      updateEngine();
+    });
+
+    /* =========================================================================
+       10C. LOOK-AHEAD SETTINGS MODAL & LOCALSTORAGE
+       ========================================================================= */
+    function loadSavedSettings() {
+      try {
+        const raw = localStorage.getItem('syncstage_settings');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          State.settings = { ...State.settings, ...parsed };
+        }
+      } catch (e) {}
+
+      // Sync modal inputs
+      const layoutRadio = document.querySelector(`input[name="opt-layout-mode"][value="${State.settings.layoutMode}"]`);
+      if (layoutRadio) layoutRadio.checked = true;
+
+      const ghostChk = document.getElementById('chk-beat4-ghost');
+      if (ghostChk) ghostChk.checked = State.settings.beat4Ghosting;
+
+      const opacSlider = document.getElementById('range-preview-opacity');
+      const opacVal = document.getElementById('preview-opacity-val');
+      if (opacSlider) opacSlider.value = State.settings.previewOpacity;
+      if (opacVal) opacVal.textContent = `${Math.round(State.settings.previewOpacity * 100)}%`;
+    }
+
+    function saveSettings() {
+      try {
+        localStorage.setItem('syncstage_settings', JSON.stringify(State.settings));
+      } catch (e) {}
+    }
+
+    const settingsModal = document.getElementById('settings-modal');
+    document.getElementById('btn-open-settings-modal').addEventListener('click', () => {
+      loadSavedSettings();
+      settingsModal.classList.remove('hidden');
+    });
+
+    document.getElementById('btn-close-settings-modal').addEventListener('click', () => {
+      settingsModal.classList.add('hidden');
+    });
+
+    document.getElementById('btn-save-settings').addEventListener('click', () => {
+      const selectedLayout = document.querySelector('input[name="opt-layout-mode"]:checked');
+      if (selectedLayout) State.settings.layoutMode = selectedLayout.value;
+
+      State.settings.beat4Ghosting = document.getElementById('chk-beat4-ghost').checked;
+      State.settings.previewOpacity = parseFloat(document.getElementById('range-preview-opacity').value) || 0.50;
+
+      saveSettings();
+      settingsModal.classList.add('hidden');
+    });
+
+    document.getElementById('range-preview-opacity').addEventListener('input', (e) => {
+      document.getElementById('preview-opacity-val').textContent = `${Math.round(parseFloat(e.target.value) * 100)}%`;
+    });
+
+    /* =========================================================================
+       10B. INDEXEDDB PERSISTENT AUDIO STORAGE (DEPLOYMENT-FRIENDLY)
+       ========================================================================= */
+    const DB_NAME = 'SyncStageAudioDB';
+    const DB_VERSION = 1;
+    const STORE_NAME = 'audioTracks';
+    const AUDIO_KEY = 'active_song_audio';
+
+    function openAudioDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, DB_VERSION);
+        req.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains(STORE_NAME)) {
+            db.createObjectStore(STORE_NAME);
+          }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    async function saveAudioToDB(arrayBuffer, filename, fileType = 'audio/mpeg') {
+      try {
+        const db = await openAudioDB();
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        store.put({ buffer: arrayBuffer, name: filename, type: fileType, timestamp: Date.now() }, AUDIO_KEY);
+        return new Promise((resolve, reject) => {
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        });
+      } catch (e) {
+        console.warn('Could not save audio to IndexedDB:', e);
+      }
+    }
+
+    async function loadAudioFromDB() {
+      try {
+        const db = await openAudioDB();
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.get(AUDIO_KEY);
+
+        return new Promise((resolve) => {
+          req.onsuccess = () => resolve(req.result || null);
+          req.onerror = () => resolve(null);
+        });
+      } catch (e) {
+        console.warn('Could not load audio from IndexedDB:', e);
+        return null;
+      }
+    }
+
+    async function clearAudioFromDB() {
+      try {
+        const db = await openAudioDB();
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        tx.objectStore(STORE_NAME).delete(AUDIO_KEY);
+      } catch (e) {
+        console.warn('Could not clear IndexedDB audio:', e);
+      }
+    }
+
+    async function restoreCachedAudio() {
+      const cached = await loadAudioFromDB();
+      if (!cached || !cached.buffer) return;
+
+      const filename = cached.name || 'cached_track.mp3';
+      const label = document.getElementById('audio-filename-lbl');
+      const icon = document.getElementById('audio-status-icon');
+      const clearBtn = document.getElementById('btn-clear-audio');
+
+      if (label) label.textContent = `✓ ${filename.substring(0, 13)}...`;
+      if (icon) icon.className = "ph-bold ph-check-circle text-sm text-green-400";
+      if (clearBtn) clearBtn.classList.remove('hidden');
+
+      const ctx = getAudioContext();
+      // Clone buffer so it remains in memory
+      const bufferCopy = cached.buffer.slice(0);
+      ctx.decodeAudioData(bufferCopy, (decodedBuffer) => {
+        State.audioBuffer = decodedBuffer;
+        State.totalDuration = Math.max(decodedBuffer.duration, State.totalDuration);
+        updateScrubberBounds();
+      }, (err) => console.warn('Cached audio decode error:', err));
+    }
+
+    document.getElementById('audio-file-input').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const label = document.getElementById('audio-filename-lbl');
+      const icon = document.getElementById('audio-status-icon');
+      const clearBtn = document.getElementById('btn-clear-audio');
+
+      label.textContent = file.name.substring(0, 14) + '...';
+      
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        const audioData = evt.target.result;
+        
+        // Save raw copy into browser storage
+        saveAudioToDB(audioData.slice(0), file.name).then(() => {
+          if (icon) icon.className = "ph-bold ph-check-circle text-sm text-green-400";
+          if (clearBtn) clearBtn.classList.remove('hidden');
+          label.textContent = `✓ ${file.name.substring(0, 13)}...`;
+        });
+
+        const ctx = getAudioContext();
+        ctx.decodeAudioData(audioData, (decodedBuffer) => {
+          State.audioBuffer = decodedBuffer;
+          State.totalDuration = decodedBuffer.duration;
+          updateScrubberBounds();
+        });
+      };
+      reader.readAsArrayBuffer(file);
+    });
+
+    document.getElementById('btn-clear-audio').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await clearAudioFromDB();
+      State.audioBuffer = null;
+      if (State.audioSource) {
+        try { State.audioSource.stop(); } catch (_) {}
+        State.audioSource = null;
+      }
+      document.getElementById('audio-filename-lbl').textContent = 'Load MP3/WAV';
+      document.getElementById('audio-status-icon').className = 'ph ph-upload-simple text-sm text-amber-400';
+      document.getElementById('btn-clear-audio').classList.add('hidden');
+      recalculateTotalDuration();
+    });
+
+    const wrapper = document.getElementById('visualizer-wrapper');
+    const videoModeControls = document.getElementById('video-mode-controls');
+    const exitVideoBtn = document.getElementById('btn-exit-video');
+    const stagePlayBtn = document.getElementById('btn-stage-play');
+
+    const mainHeader = document.getElementById('main-header');
+    const mainSidebar = document.getElementById('main-sidebar');
+    const transportControls = document.getElementById('transport-controls-card');
+    const mainStageCol = document.getElementById('main-stage-col');
+
+    function syncStagePlayButton() {
+      const icon = document.getElementById('stage-play-icon');
+      const text = document.getElementById('stage-play-text');
+      if (icon && text) {
+        if (State.isPlaying) {
+          icon.className = "ph-fill ph-pause text-sm";
+          text.textContent = "Pause";
+        } else {
+          icon.className = "ph-fill ph-play text-sm";
+          text.textContent = "Play";
+        }
+      }
+    }
+
+    function enterVideoMode() {
+      State.isVideoMode = true;
+
+      // 1. Hide header, sidebar editor, and transport card completely
+      if (mainHeader) mainHeader.classList.add('hidden');
+      if (mainSidebar) mainSidebar.classList.add('hidden');
+      if (transportControls) transportControls.classList.add('hidden');
+
+      // 2. Expand stage column to fill available viewport
+      if (mainStageCol) {
+        mainStageCol.classList.remove('p-3', 'md:p-5');
+        mainStageCol.classList.add('p-0', 'justify-center', 'items-center', 'h-screen');
+      }
+
+      // 3. Make the visualizer container fill the screen gracefully
+      wrapper.classList.remove('max-w-5xl', 'rounded-xl', 'border', 'border-zinc-800', 'p-6');
+      wrapper.classList.add('w-full', 'h-full', 'rounded-none', 'border-0', 'p-6', 'md:p-8');
+
+      // 4. Show stage floating pill
+      videoModeControls.classList.remove('hidden');
+      videoModeControls.classList.add('flex');
+      syncStagePlayButton();
+
+      // Trigger browser fullscreen if supported
+      try {
+        if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        }
+      } catch (e) {}
+
+      // Recalculate canvas size cleanly after DOM reflow
+      requestAnimationFrame(() => {
+        resizeCanvas();
+        setTimeout(resizeCanvas, 60);
+      });
+    }
+
+    function exitVideoMode() {
+      State.isVideoMode = false;
+
+      // 1. Restore header, sidebar, and transport card
+      if (mainHeader) mainHeader.classList.remove('hidden');
+      if (mainSidebar) mainSidebar.classList.remove('hidden');
+      if (transportControls) transportControls.classList.remove('hidden');
+
+      // 2. Restore stage column padding and layout
+      if (mainStageCol) {
+        mainStageCol.classList.remove('p-0', 'justify-center', 'items-center', 'h-screen');
+        mainStageCol.classList.add('p-2.5', 'md:p-4', 'justify-between');
+      }
+
+      // 3. Restore visualizer container styles
+      wrapper.classList.remove('w-full', 'h-full', 'rounded-none', 'border-0', 'p-8');
+      wrapper.classList.add('max-w-5xl', 'rounded-xl', 'border', 'border-zinc-800', 'p-4', 'md:p-5', 'min-h-[220px]');
+
+      // 4. Hide stage floating pill
+      videoModeControls.classList.add('hidden');
+      videoModeControls.classList.remove('flex');
+
+      // Exit browser fullscreen if active
+      try {
+        if (document.fullscreenElement && document.exitFullscreen) {
+          document.exitFullscreen().catch(() => {});
+        }
+      } catch (e) {}
+
+      requestAnimationFrame(() => {
+        resizeCanvas();
+        setTimeout(resizeCanvas, 60);
+      });
+    }
+
+    document.getElementById('btn-video-mode').addEventListener('click', enterVideoMode);
+    exitVideoBtn.addEventListener('click', exitVideoMode);
+
+    if (stagePlayBtn) {
+      stagePlayBtn.addEventListener('click', () => {
+        if (State.isPlaying) pausePlayback();
+        else startPlayback();
+        syncStagePlayButton();
+      });
+    }
+
+    // Sync button state on global play/pause changes
+    const originalStartPlayback = startPlayback;
+    startPlayback = function() {
+      originalStartPlayback();
+      syncStagePlayButton();
+    };
+
+    const originalPausePlayback = pausePlayback;
+    pausePlayback = function() {
+      originalPausePlayback();
+      syncStagePlayButton();
+    };
+
+    // Listen to native fullscreen exit (e.g. user pressed Escape via browser)
+    document.addEventListener('fullscreenchange', () => {
+      if (!document.fullscreenElement && State.isVideoMode) {
+        exitVideoMode();
+      }
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      
+      if (e.code === 'Space') {
+        e.preventDefault();
+        if (State.isPlaying) pausePlayback();
+        else startPlayback();
+        syncStagePlayButton();
+      } else if (e.code === 'Escape' && State.isVideoMode) {
+        exitVideoMode();
+      } else if (e.code === 'ArrowLeft') {
+        seekToTime(State.currentTime - 1);
+      } else if (e.code === 'ArrowRight') {
+        seekToTime(State.currentTime + 1);
+      }
+    });
+
+    /* =========================================================================
+       12. INITIALIZATION
+       ========================================================================= */
+    window.onload = function() {
+      // Load user look-ahead display settings from local storage
+      loadSavedSettings();
+      // Default to Chords tab on startup for direct editing
+      setTabActive('chords');
+      resizeCanvas();
+      setupTimelineTooltip();
+      setupPresetRenameButtons();
+      updateEngine();
+      restoreCachedAudio();
+      const initialMetrics = getTimingMetricsAt(0);
+      updateHeaderDisplay(initialMetrics);
+      drawVisualizer();
+    };
+  </script>
+</body>
+</html>
